@@ -30,12 +30,10 @@ class SelectionMenuFrameLayout
                 return super.startActionModeForChild(originalView, callback, type)
             }
             val wrapped = decorate(originalView, callback)
-            return DeferredSelectionActionMode(originalView, wrapped) {
-                val mode = super.startActionModeForChild(originalView, wrapped, type)
-                if (mode == null) {
-                    (wrapped as? SystemSelectionActionModeCallback)?.releaseLock()
-                }
-                mode
+            val mode = super.startActionModeForChild(originalView, wrapped, type)
+            if (mode == null) {
+                (wrapped as? SystemSelectionActionModeCallback)?.releaseLock()
             }
+            return mode
         }
     }
