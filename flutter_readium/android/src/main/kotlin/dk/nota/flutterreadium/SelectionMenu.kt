@@ -150,7 +150,6 @@ internal class ColumnScrollLock(
  */
 internal class SystemSelectionActionModeCallback(
     private val delegate: ActionMode.Callback,
-    private val source: View,
     private val columnLock: ColumnScrollLock?,
     private val canFilter: Boolean,
     private val target: SelectionMenuTarget,
@@ -159,7 +158,6 @@ internal class SystemSelectionActionModeCallback(
     private val onCustomAction: (SelectionActionConfig) -> Unit,
 ) : ActionMode.Callback2() {
     private var preparing = false
-    private var mode: ActionMode? = null
 
     fun releaseLock() {
         columnLock?.release()
@@ -169,7 +167,6 @@ internal class SystemSelectionActionModeCallback(
         mode: ActionMode,
         menu: Menu,
     ): Boolean {
-        this.mode = mode
         columnLock?.install()
         val created = delegate.onCreateActionMode(mode, menu)
         if (canFilter) enforce(menu)
@@ -208,7 +205,6 @@ internal class SystemSelectionActionModeCallback(
     }
 
     override fun onDestroyActionMode(mode: ActionMode) {
-        this.mode = null
         columnLock?.release()
         delegate.onDestroyActionMode(mode)
     }
@@ -266,7 +262,6 @@ internal fun decorateSystemSelectionCallback(
     lock?.install()
     return SystemSelectionActionModeCallback(
         delegate = delegate,
-        source = source,
         columnLock = lock,
         canFilter = ids.canFilter,
         target = target,

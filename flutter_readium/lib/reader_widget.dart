@@ -320,8 +320,10 @@ class _ReadiumReaderWidgetState extends State<ReadiumReaderWidget> implements Re
           gestureRecognizers: const {},
           hitTestBehavior: PlatformViewHitTestBehavior.opaque,
         ),
+        // Hybrid Composition, because the Android text-selection magnifier
+        // cannot capture a texture-backed platform view and draws a black box.
         onCreatePlatformView: (final params) =>
-            PlatformViewsService.initSurfaceAndroidView(
+            PlatformViewsService.initExpensiveAndroidView(
                 id: params.id,
                 viewType: _viewType,
                 layoutDirection: TextDirection.ltr,

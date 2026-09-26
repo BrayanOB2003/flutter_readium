@@ -126,11 +126,9 @@ class ComicNavigator :
             // host fragments whose root layout is already match_parent, so they avoid this.)
             //
             // Use the parent's concrete LayoutParams subtype. The plugin renders platform views
-            // with TLHC (initSurfaceAndroidView), whose container is a FrameLayout — the generic
-            // ViewGroup.LayoutParams branch handles that. The LinearLayout branch is a safety net
-            // for Hybrid Composition (which TLHC can fall back to per-frame, or a host may select):
-            // LinearLayout.measureHorizontal casts params to LinearLayout.LayoutParams and would
-            // crash on a generic ViewGroup.LayoutParams.
+            // with Hybrid Composition (initExpensiveAndroidView), whose container can be a
+            // LinearLayout: LinearLayout.measureHorizontal casts params to
+            // LinearLayout.LayoutParams and would crash on a generic ViewGroup.LayoutParams.
             navigator.view?.let { v ->
                 v.layoutParams =
                     if (v.parent is LinearLayout) {
