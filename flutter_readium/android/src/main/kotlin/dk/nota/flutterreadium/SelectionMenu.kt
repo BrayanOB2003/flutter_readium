@@ -10,6 +10,8 @@ import android.view.View
 import android.webkit.WebView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+private const val SELECTION_MENU_HOLD_MS = 3_000L
+
 /**
  * Decides when the Android selection menu is already the one we want.
  *
@@ -149,27 +151,67 @@ internal class ColumnScrollLock(
  */
 internal class SystemSelectionActionModeCallback(
     private val delegate: ActionMode.Callback,
+    private val source: View,
     private val columnLock: ColumnScrollLock?,
     private val canFilter: Boolean,
     private val target: SelectionMenuTarget,
     private val customActions: List<SelectionActionConfig>,
     private val onTextSelected: () -> Unit,
     private val onCustomAction: (SelectionActionConfig) -> Unit,
+    isPointerDown: () -> Boolean = { false },
 ) : ActionMode.Callback2() {
+    var isPointerDown: () -> Boolean = isPointerDown
     private var preparing = false
+    private var mode: ActionMode? = null
+    private var holding = false
+    private val keepHidden =
+        object : Runnable {
+            override fun run() {
+                val active = mode ?: return
+                if (!isPointerDown()) return
+                active.hide(SELECTION_MENU_HOLD_MS)
+                source.postDelayed(this, SELECTION_MENU_HOLD_MS - 500)
+            }
+        }
 
     fun releaseLock() {
         columnLock?.release()
+    }
+
+    /**
+     * The floating toolbar draws its empty background as soon as the gesture
+     * starts, then jumps into place when the handle is released. Keep it
+     * hidden until that release.
+     */
+    fun holdHidden() {
+        val active = mode ?: return
+        if (!isPointerDown()) return
+        holding = true
+        source.removeCallbacks(keepHidden)
+        active.hide(SELECTION_MENU_HOLD_MS)
+        source.postDelayed(keepHidden, SELECTION_MENU_HOLD_MS - 500)
+    }
+
+    fun reveal() {
+        if (!holding) return
+        holding = false
+        source.removeCallbacks(keepHidden)
+        val active = mode ?: return
+        if (isPointerDown()) return
+        active.invalidateContentRect()
+        active.hide(0)
     }
 
     override fun onCreateActionMode(
         mode: ActionMode,
         menu: Menu,
     ): Boolean {
+        this.mode = mode
         columnLock?.install()
         val created = delegate.onCreateActionMode(mode, menu)
         if (canFilter) enforce(menu)
         onTextSelected()
+        if (isPointerDown()) holdHidden()
         return created
     }
 
@@ -204,6 +246,9 @@ internal class SystemSelectionActionModeCallback(
     }
 
     override fun onDestroyActionMode(mode: ActionMode) {
+        this.mode = null
+        holding = false
+        source.removeCallbacks(keepHidden)
         columnLock?.release()
         delegate.onDestroyActionMode(mode)
     }
@@ -219,6 +264,7 @@ internal class SystemSelectionActionModeCallback(
         } else {
             super.onGetContentRect(mode, view, outRect)
         }
+        if (isPointerDown()) holdHidden()
     }
 
     private fun menuIsQuiet(menu: Menu): Boolean {
@@ -246,6 +292,7 @@ internal fun decorateSystemSelectionCallback(
     context: Context,
     onTextSelected: () -> Unit,
     onCustomAction: (SelectionActionConfig) -> Unit,
+    pointerDown: () -> Boolean = { false },
 ): SystemSelectionActionModeCallback {
     val ids = webViewSelectionIds(context)
     val actions = ReadiumReader.selectionActions
@@ -261,11 +308,13 @@ internal fun decorateSystemSelectionCallback(
     lock?.install()
     return SystemSelectionActionModeCallback(
         delegate = delegate,
+        source = source,
         columnLock = lock,
         canFilter = ids.canFilter,
         target = target,
         customActions = actions,
         onTextSelected = onTextSelected,
         onCustomAction = onCustomAction,
+        isPointerDown = pointerDown,
     )
 }

@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Selecting text at the top of a page shifted the page on Android.** The selection menu was rebuilt on every pass, and the viewer scrolled the column to make room for it. The menu now stays still once Copy and Share are showing, and the column stays put.
+- **The Android selection menu flashed an empty black bar while the handles were dragged.** The toolbar was drawn before the selection had stopped moving. It stays hidden until the handle is released, then appears in place.
 - **Text selection on Android was only reported when the app supplied its own menu.** `onTextSelected` now also fires with the system menu, and `allowedDefaultActions` limits that menu. A short tap outside the selection in scroll mode clears it.
 
 ## [0.6.0] - 2026-09-22
