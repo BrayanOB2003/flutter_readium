@@ -2,19 +2,19 @@ package dk.nota.flutterreadium
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.os.Build
 import android.view.ActionMode
 import android.view.Menu
+import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.webkit.WebView
+import android.widget.PopupMenu
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
-private const val SELECTION_MENU_STILL_MS = 160L
-private const val SELECTION_MENU_OFFSCREEN_LEFT = -10_000
-private const val SELECTION_MENU_OFFSCREEN_TOP = -10_000
-private const val SELECTION_MENU_OFFSCREEN_RIGHT = -9_999
-private const val SELECTION_MENU_OFFSCREEN_BOTTOM = -9_999
+private const val SELECTION_MENU_STILL_MS = 50L
+private const val SELECTION_MENU_HOLD_MS = 3_000L
 
 /**
  * Decides when the Android selection menu is already the one we want.
@@ -34,9 +34,9 @@ internal data class SelectionMenuTarget(
 }
 
 /**
- * The floating toolbar paints as soon as the first selection rect arrives, then
- * jumps when the handles stop. [onContentRect] keeps it withheld until that
- * rect stays still; [onQuiet] is the moment it may appear.
+ * The floating toolbar is a separate window. Creating it while the handles are
+ * still moving paints that window as an empty black bar, then jumps it into
+ * place. [onContentRect] withholds it until the rect stays still.
  */
 internal class SelectionToolbarGate {
     private var last: SelectionContentRect? = null
@@ -201,13 +201,6 @@ internal class SystemSelectionActionModeCallback(
 ) : ActionMode.Callback2() {
     private var preparing = false
     private var mode: ActionMode? = null
-    private val toolbarGate = SelectionToolbarGate()
-    private val showToolbarWhenStill =
-        Runnable {
-            val active = mode ?: return@Runnable
-            toolbarGate.onQuiet()
-            active.invalidateContentRect()
-        }
 
     fun releaseLock() {
         columnLock?.release()
@@ -257,7 +250,6 @@ internal class SystemSelectionActionModeCallback(
 
     override fun onDestroyActionMode(mode: ActionMode) {
         this.mode = null
-        source.removeCallbacks(showToolbarWhenStill)
         columnLock?.release()
         delegate.onDestroyActionMode(mode)
     }
@@ -265,34 +257,13 @@ internal class SystemSelectionActionModeCallback(
     override fun onGetContentRect(
         mode: ActionMode,
         view: View,
-        outRect: android.graphics.Rect,
+        outRect: Rect,
     ) {
         val callback2 = delegate as? ActionMode.Callback2
         if (callback2 != null) {
             callback2.onGetContentRect(mode, view, outRect)
         } else {
             super.onGetContentRect(mode, view, outRect)
-        }
-        // An off-screen rect is out of bounds, so the toolbar stays hidden
-        // until the selection rect has stopped moving.
-        val moved =
-            toolbarGate.onContentRect(
-                outRect.left,
-                outRect.top,
-                outRect.right,
-                outRect.bottom,
-            )
-        if (moved) {
-            source.removeCallbacks(showToolbarWhenStill)
-            source.postDelayed(showToolbarWhenStill, SELECTION_MENU_STILL_MS)
-        }
-        if (toolbarGate.withhold) {
-            outRect.set(
-                SELECTION_MENU_OFFSCREEN_LEFT,
-                SELECTION_MENU_OFFSCREEN_TOP,
-                SELECTION_MENU_OFFSCREEN_RIGHT,
-                SELECTION_MENU_OFFSCREEN_BOTTOM,
-            )
         }
     }
 
@@ -344,4 +315,139 @@ internal fun decorateSystemSelectionCallback(
         onTextSelected = onTextSelected,
         onCustomAction = onCustomAction,
     )
+}
+
+/**
+ * Stands in for the system floating toolbar until the selection rect stays still.
+ *
+ * The real toolbar is a popup window. Opening it while the handles move draws
+ * the window's empty background, then slides it into place when the drag ends.
+ */
+internal class DeferredSelectionActionMode(
+    private val view: View,
+    private val callback: ActionMode.Callback,
+    private val startReal: () -> ActionMode?,
+) : ActionMode() {
+    private var real: ActionMode? = null
+    private var finished = false
+    private var readingRect = false
+    private val gate = SelectionToolbarGate()
+    private val stubMenu by lazy { PopupMenu(view.context, view).menu }
+    private val promoteRunnable = Runnable { promote() }
+    private val keepHidden =
+        object : Runnable {
+            override fun run() {
+                val active = real ?: return
+                if (!gate.withhold) return
+                active.hide(SELECTION_MENU_HOLD_MS)
+                view.postDelayed(this, SELECTION_MENU_HOLD_MS - 500)
+            }
+        }
+
+    init {
+        setType(TYPE_FLOATING)
+        view.post {
+            if (real == null && !finished) invalidateContentRect()
+        }
+    }
+
+    override fun setTitle(title: CharSequence?) {
+        real?.setTitle(title)
+    }
+
+    override fun setTitle(resId: Int) {
+        real?.setTitle(resId)
+    }
+
+    override fun setSubtitle(subtitle: CharSequence?) {
+        real?.setSubtitle(subtitle)
+    }
+
+    override fun setSubtitle(resId: Int) {
+        real?.setSubtitle(resId)
+    }
+
+    override fun setCustomView(view: View?) {
+        real?.setCustomView(view)
+    }
+
+    override fun invalidate() {
+        if (readingRect) return
+        val active = real
+        if (active != null && !gate.withhold) {
+            active.invalidate()
+        } else {
+            invalidateContentRect()
+        }
+    }
+
+    override fun invalidateContentRect() {
+        if (finished || readingRect) return
+        val rect = Rect()
+        val callback2 = callback as? Callback2
+        if (callback2 != null) {
+            readingRect = true
+            try {
+                callback2.onGetContentRect(this, view, rect)
+            } finally {
+                readingRect = false
+            }
+        }
+        if (rect.isEmpty) return
+        val moved = gate.onContentRect(rect.left, rect.top, rect.right, rect.bottom)
+        if (moved) {
+            view.removeCallbacks(promoteRunnable)
+            view.postDelayed(promoteRunnable, SELECTION_MENU_STILL_MS)
+            val active = real ?: return
+            view.removeCallbacks(keepHidden)
+            active.hide(SELECTION_MENU_HOLD_MS)
+            view.postDelayed(keepHidden, SELECTION_MENU_HOLD_MS - 500)
+            return
+        }
+        if (real != null && !gate.withhold) {
+            real?.invalidateContentRect()
+        }
+    }
+
+    override fun hide(duration: Long) {
+        if (gate.withhold) return
+        real?.hide(duration)
+    }
+
+    override fun finish() {
+        if (finished) return
+        finished = true
+        view.removeCallbacks(promoteRunnable)
+        view.removeCallbacks(keepHidden)
+        val active = real
+        real = null
+        if (active != null) {
+            active.finish()
+        } else {
+            callback.onDestroyActionMode(this)
+        }
+    }
+
+    override fun getMenu(): Menu = real?.menu ?: stubMenu
+
+    override fun getTitle(): CharSequence? = real?.title
+
+    override fun getSubtitle(): CharSequence? = real?.subtitle
+
+    override fun getCustomView(): View? = real?.customView
+
+    override fun getMenuInflater(): MenuInflater = real?.menuInflater ?: MenuInflater(view.context)
+
+    private fun promote() {
+        if (finished) return
+        gate.onQuiet()
+        view.removeCallbacks(keepHidden)
+        val active = real
+        if (active == null) {
+            real = startReal()
+        } else {
+            active.invalidateContentRect()
+            active.hide(0)
+        }
+    }
 }
