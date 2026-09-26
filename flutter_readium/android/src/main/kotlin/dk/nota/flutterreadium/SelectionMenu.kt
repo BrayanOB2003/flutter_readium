@@ -10,7 +10,11 @@ import android.view.View
 import android.webkit.WebView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
-private const val SELECTION_MENU_HOLD_MS = 3_000L
+private const val SELECTION_MENU_STILL_MS = 160L
+private const val SELECTION_MENU_OFFSCREEN_LEFT = -10_000
+private const val SELECTION_MENU_OFFSCREEN_TOP = -10_000
+private const val SELECTION_MENU_OFFSCREEN_RIGHT = -9_999
+private const val SELECTION_MENU_OFFSCREEN_BOTTOM = -9_999
 
 /**
  * Decides when the Android selection menu is already the one we want.
@@ -28,6 +32,42 @@ internal data class SelectionMenuTarget(
     val permittedIds: Set<Int> =
         requiredGroups.flatten().toSet() + optionalSystemIds + customIds
 }
+
+/**
+ * The floating toolbar paints as soon as the first selection rect arrives, then
+ * jumps when the handles stop. [onContentRect] keeps it withheld until that
+ * rect stays still; [onQuiet] is the moment it may appear.
+ */
+internal class SelectionToolbarGate {
+    private var last: SelectionContentRect? = null
+    var withhold: Boolean = true
+        private set
+
+    /** Returns true when the rect moved and the quiet timer should restart. */
+    fun onContentRect(
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ): Boolean {
+        val rect = SelectionContentRect(left, top, right, bottom)
+        val moved = last != rect
+        last = rect
+        if (moved) withhold = true
+        return moved
+    }
+
+    fun onQuiet() {
+        withhold = false
+    }
+}
+
+internal data class SelectionContentRect(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+)
 
 internal fun selectionMenuIsSettled(
     itemIds: Set<Int>,
@@ -158,48 +198,19 @@ internal class SystemSelectionActionModeCallback(
     private val customActions: List<SelectionActionConfig>,
     private val onTextSelected: () -> Unit,
     private val onCustomAction: (SelectionActionConfig) -> Unit,
-    isPointerDown: () -> Boolean = { false },
 ) : ActionMode.Callback2() {
-    var isPointerDown: () -> Boolean = isPointerDown
     private var preparing = false
     private var mode: ActionMode? = null
-    private var holding = false
-    private val keepHidden =
-        object : Runnable {
-            override fun run() {
-                val active = mode ?: return
-                if (!isPointerDown()) return
-                active.hide(SELECTION_MENU_HOLD_MS)
-                source.postDelayed(this, SELECTION_MENU_HOLD_MS - 500)
-            }
+    private val toolbarGate = SelectionToolbarGate()
+    private val showToolbarWhenStill =
+        Runnable {
+            val active = mode ?: return@Runnable
+            toolbarGate.onQuiet()
+            active.invalidateContentRect()
         }
 
     fun releaseLock() {
         columnLock?.release()
-    }
-
-    /**
-     * The floating toolbar draws its empty background as soon as the gesture
-     * starts, then jumps into place when the handle is released. Keep it
-     * hidden until that release.
-     */
-    fun holdHidden() {
-        val active = mode ?: return
-        if (!isPointerDown()) return
-        holding = true
-        source.removeCallbacks(keepHidden)
-        active.hide(SELECTION_MENU_HOLD_MS)
-        source.postDelayed(keepHidden, SELECTION_MENU_HOLD_MS - 500)
-    }
-
-    fun reveal() {
-        if (!holding) return
-        holding = false
-        source.removeCallbacks(keepHidden)
-        val active = mode ?: return
-        if (isPointerDown()) return
-        active.invalidateContentRect()
-        active.hide(0)
     }
 
     override fun onCreateActionMode(
@@ -211,7 +222,6 @@ internal class SystemSelectionActionModeCallback(
         val created = delegate.onCreateActionMode(mode, menu)
         if (canFilter) enforce(menu)
         onTextSelected()
-        if (isPointerDown()) holdHidden()
         return created
     }
 
@@ -247,8 +257,7 @@ internal class SystemSelectionActionModeCallback(
 
     override fun onDestroyActionMode(mode: ActionMode) {
         this.mode = null
-        holding = false
-        source.removeCallbacks(keepHidden)
+        source.removeCallbacks(showToolbarWhenStill)
         columnLock?.release()
         delegate.onDestroyActionMode(mode)
     }
@@ -264,7 +273,27 @@ internal class SystemSelectionActionModeCallback(
         } else {
             super.onGetContentRect(mode, view, outRect)
         }
-        if (isPointerDown()) holdHidden()
+        // An off-screen rect is out of bounds, so the toolbar stays hidden
+        // until the selection rect has stopped moving.
+        val moved =
+            toolbarGate.onContentRect(
+                outRect.left,
+                outRect.top,
+                outRect.right,
+                outRect.bottom,
+            )
+        if (moved) {
+            source.removeCallbacks(showToolbarWhenStill)
+            source.postDelayed(showToolbarWhenStill, SELECTION_MENU_STILL_MS)
+        }
+        if (toolbarGate.withhold) {
+            outRect.set(
+                SELECTION_MENU_OFFSCREEN_LEFT,
+                SELECTION_MENU_OFFSCREEN_TOP,
+                SELECTION_MENU_OFFSCREEN_RIGHT,
+                SELECTION_MENU_OFFSCREEN_BOTTOM,
+            )
+        }
     }
 
     private fun menuIsQuiet(menu: Menu): Boolean {
@@ -292,7 +321,6 @@ internal fun decorateSystemSelectionCallback(
     context: Context,
     onTextSelected: () -> Unit,
     onCustomAction: (SelectionActionConfig) -> Unit,
-    pointerDown: () -> Boolean = { false },
 ): SystemSelectionActionModeCallback {
     val ids = webViewSelectionIds(context)
     val actions = ReadiumReader.selectionActions
@@ -315,6 +343,5 @@ internal fun decorateSystemSelectionCallback(
         customActions = actions,
         onTextSelected = onTextSelected,
         onCustomAction = onCustomAction,
-        isPointerDown = pointerDown,
     )
 }

@@ -93,4 +93,25 @@ internal class SelectionMenuPolicyTest {
         assertFalse(selectionMenuIsSettled(setOf(copy, share), target))
         assertTrue(selectionMenuIsSettled(setOf(copy, share, highlight), target))
     }
+
+    @Test
+    fun `toolbar stays withheld while the selection rect is moving`() {
+        val gate = SelectionToolbarGate()
+
+        assertTrue(gate.onContentRect(0, 0, 10, 10))
+        assertTrue(gate.withhold)
+        assertTrue(gate.onContentRect(0, 20, 10, 30))
+        assertTrue(gate.withhold)
+
+        assertFalse(gate.onContentRect(0, 20, 10, 30))
+        assertTrue(gate.withhold)
+
+        gate.onQuiet()
+        assertFalse(gate.withhold)
+        assertFalse(gate.onContentRect(0, 20, 10, 30))
+        assertFalse(gate.withhold)
+
+        assertTrue(gate.onContentRect(0, 40, 10, 50))
+        assertTrue(gate.withhold)
+    }
 }
