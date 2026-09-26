@@ -31,9 +31,9 @@ check npm     required
 
 if [ "$status" -ne 0 ]; then
   echo
-  echo "Missing a required tool. Put it on your PATH, or install fvm to use the"
-  echo ".fvmrc-pinned Flutter/Dart. bin/_common.sh prepends the usual locations"
-  echo "(/opt/homebrew/bin, /usr/local/bin, ~/.pub-cache/bin, nvm node)."
+  echo "Missing a required tool. Flutter/Dart follow the .fvmrc pin when that"
+  echo "SDK is installed (.fvm/flutter_sdk or ~/fvm/versions); otherwise put"
+  echo "flutter, dart, node, and npm on PATH. bin/install fetches the pin with fvm."
 fi
 
 exit "$status"

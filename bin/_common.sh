@@ -42,20 +42,33 @@ if ! command -v npm >/dev/null 2>&1 && [ -d "$HOME/.nvm/versions/node" ]; then
 fi
 export PATH
 
-# --- Toolchain: prefer PATH, fall back to an fvm-managed SDK ----------------
-# If flutter/dart are already resolvable (system install, Homebrew, manual —
-# whatever the developer uses) we leave them alone. ONLY when one is missing do
-# we add an fvm-managed SDK via its project symlink. We add the SDK's REAL
-# binaries to PATH (not a `fvm` function shim): real binaries are inherited by
-# every child process through the exported PATH, and — unlike `export -f` shims
-# — they cannot recurse when fvm itself shells out to invoke dart/flutter.
-if ! command -v dart >/dev/null 2>&1 || ! command -v flutter >/dev/null 2>&1; then
+# --- Toolchain: prefer the Flutter pinned in .fvmrc --------------------------
+# The project pin wins over a global Flutter already on PATH. Real SDK
+# binaries, not the `fvm` shim: they inherit through PATH and cannot recurse
+# when fvm itself shells out to dart/flutter.
+_fvmrc_flutter_version() {
+  [ -f "$REPO_ROOT/.fvmrc" ] || return 1
+  sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$REPO_ROOT/.fvmrc"
+}
+
+_prefer_project_flutter() {
+  local _sdk_bin _ver
   for _sdk_bin in \
-    "$REPO_ROOT/flutter_readium/.fvm/flutter_sdk/bin" \
-    "$REPO_ROOT/.fvm/flutter_sdk/bin"; do
+    "$REPO_ROOT/.fvm/flutter_sdk/bin" \
+    "$REPO_ROOT/flutter_readium/.fvm/flutter_sdk/bin"; do
     if [ -x "$_sdk_bin/dart" ] && [ -x "$_sdk_bin/flutter" ]; then
       _prepend_path "$_sdk_bin"
-      break
+      return 0
     fi
   done
-fi
+  _ver="$(_fvmrc_flutter_version)" || return 1
+  [ -n "$_ver" ] || return 1
+  _sdk_bin="$HOME/fvm/versions/${_ver}/bin"
+  if [ -x "$_sdk_bin/dart" ] && [ -x "$_sdk_bin/flutter" ]; then
+    _prepend_path "$_sdk_bin"
+    return 0
+  fi
+  return 1
+}
+
+_prefer_project_flutter || true

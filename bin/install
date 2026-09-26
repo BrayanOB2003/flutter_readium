@@ -9,6 +9,16 @@ if [ "$_npm_major" -lt 11 ] || { [ "$_npm_major" -eq 11 ] && [ "$_npm_minor" -lt
   exit 1
 fi
 
+# Fetch the .fvmrc SDK when it is not cached yet. Passing the version skips
+# `fvm use`, which would rewrite .vscode and .gitignore.
+if ! _prefer_project_flutter && command -v fvm >/dev/null 2>&1; then
+  _ver="$(_fvmrc_flutter_version)" || true
+  if [ -n "${_ver:-}" ]; then
+    fvm install "$_ver" --skip-pub-get
+    _prefer_project_flutter || true
+  fi
+fi
+
 "$REPO_ROOT/bin/forAll" flutter pub get
 
 # Install helper-script dependencies (used by example/lib/flutter_readium:copy_js_file)
