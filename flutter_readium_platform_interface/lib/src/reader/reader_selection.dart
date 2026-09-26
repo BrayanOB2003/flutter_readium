@@ -87,10 +87,9 @@ class SelectionAction implements JSONable {
 /// If `null` is passed (the default), all system defaults are shown.
 /// If an empty set is passed, only your custom actions appear.
 ///
-/// **Android limitation:** providing custom [SelectionAction]s replaces the
-/// WebView's default `ActionMode.Callback` entirely, so system items (Copy,
-/// Share, Select All) are not shown regardless of this setting.
-/// `allowedDefaultActions` has no effect on Android.
+/// On Android this filters the system selection menu, and `onTextSelected`
+/// fires for that menu as well as for custom actions. [lookup] and [translate]
+/// have no effect there.
 enum DefaultSelectionAction {
   /// Copy selected text to clipboard.
   copy,

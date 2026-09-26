@@ -524,8 +524,14 @@ object ReadiumReader :
             readerViewRef = value?.let { WeakReference(it) }
         }
 
-    /** Selection actions configured from Dart. Used by EpubReaderFragment to build ActionMode menu. */
+    /** Selection actions configured from Dart. Appended to the system selection menu. */
     var selectionActions: List<SelectionActionConfig> = emptyList()
+
+    /**
+     * System selection actions the menu may show (`copy`, `share`, `selectAll`).
+     * Null means every Android-supported default.
+     */
+    var allowedDefaultActions: Set<String>? = null
 
     /** Extra CSS assets injected alongside the built-in helpers. */
     var cssInjections: List<InjectionAsset> = emptyList()

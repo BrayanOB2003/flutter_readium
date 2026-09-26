@@ -120,13 +120,9 @@ class ReadiumReaderWidget(
                 FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset)
             }
 
-        // Selection actions must be known BEFORE the navigator fragment is built, because
-        // EpubReaderFragment decides `selectionActionModeCallback` from
-        // `ReadiumReader.selectionActions` and a null callback means `onTextSelected` never
-        // fires. The `configureSelectionActions` method call arrives after this widget is
-        // constructed, so relying on it alone leaves selection dead on the first mount —
-        // the singleton only happens to be populated from the second reader onwards.
-        // iOS already reads the same key straight from the creation params.
+        // The selection menu reads these when it opens. `configureSelectionActions`
+        // arrives after this widget is built, so the first mount would otherwise
+        // have no custom items. Seed both from creation params, as iOS does.
         @Suppress("UNCHECKED_CAST")
         val selectionActionsParam =
             creationParams["selectionActions"] as? List<Map<String, String>> ?: emptyList()
@@ -136,6 +132,15 @@ class ReadiumReaderWidget(
                     id = map["id"] ?: "",
                     title = map["title"] ?: "",
                 )
+            }
+        ReadiumReader.allowedDefaultActions =
+            if (creationParams.containsKey("allowedDefaultActions")) {
+                (creationParams["allowedDefaultActions"] as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    ?.toSet()
+                    ?: emptySet()
+            } else {
+                null
             }
 
         // Accepted for API parity with iOS but currently no-op: kotlin-toolkit's
