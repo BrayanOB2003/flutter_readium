@@ -109,48 +109,18 @@ private fun Menu.itemIds(): Set<Int> =
     }
 
 /**
- * Pins a WebView's scroll while a selection menu is open in book mode.
- * Showing the menu asks the WebView to scroll the selection into view, which
- * shifts a fixed column.
- */
-internal class ColumnScrollLock(
-    private val view: View,
-) {
-    private val x = view.scrollX
-    private val y = view.scrollY
-    private var restoring = false
-    private val listener =
-        View.OnScrollChangeListener { scrolled, scrollX, scrollY, _, _ ->
-            if (restoring || (scrollX == x && scrollY == y)) return@OnScrollChangeListener
-            restoring = true
-            scrolled.scrollTo(x, y)
-            restoring = false
-        }
-
-    fun install() {
-        if (view.getTag(R.id.selection_column_scroll_lock) === this) return
-        view.setTag(R.id.selection_column_scroll_lock, this)
-        view.setOnScrollChangeListener(listener)
-    }
-
-    fun release() {
-        if (view.getTag(R.id.selection_column_scroll_lock) !== this) return
-        view.setOnScrollChangeListener(null)
-        view.setTag(R.id.selection_column_scroll_lock, null)
-    }
-}
-
-/**
  * Wraps the WebView's own selection callback.
  *
  * The system callback still performs Copy, Share, and Select all. This wrapper
  * drops every other system item, appends the app's custom actions, and reports
  * the selection. [onPrepareActionMode] returns false once that menu is in place
  * so Android does not rebuild it.
+ *
+ * The column stays in place through [SELECTION_GESTURES_JS], which pins it
+ * for as long as text is selected, with or without this menu.
  */
 internal class SystemSelectionActionModeCallback(
     private val delegate: ActionMode.Callback,
-    private val columnLock: ColumnScrollLock?,
     private val canFilter: Boolean,
     private val target: SelectionMenuTarget,
     private val customActions: List<SelectionActionConfig>,
@@ -159,15 +129,10 @@ internal class SystemSelectionActionModeCallback(
 ) : ActionMode.Callback2() {
     private var preparing = false
 
-    fun releaseLock() {
-        columnLock?.release()
-    }
-
     override fun onCreateActionMode(
         mode: ActionMode,
         menu: Menu,
     ): Boolean {
-        columnLock?.install()
         val created = delegate.onCreateActionMode(mode, menu)
         if (canFilter) enforce(menu)
         onTextSelected()
@@ -205,7 +170,6 @@ internal class SystemSelectionActionModeCallback(
     }
 
     override fun onDestroyActionMode(mode: ActionMode) {
-        columnLock?.release()
         delegate.onDestroyActionMode(mode)
     }
 
@@ -242,8 +206,6 @@ internal class SystemSelectionActionModeCallback(
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun decorateSystemSelectionCallback(
     delegate: ActionMode.Callback,
-    source: View,
-    bookMode: Boolean,
     context: Context,
     onTextSelected: () -> Unit,
     onCustomAction: (SelectionActionConfig) -> Unit,
@@ -258,11 +220,8 @@ internal fun decorateSystemSelectionCallback(
             selectAllIds = ids.selectAll,
             customIds = actions.indices.map { selectionCustomItemId(it) }.toSet(),
         )
-    val lock = if (bookMode && source is WebView) ColumnScrollLock(source) else null
-    lock?.install()
     return SystemSelectionActionModeCallback(
         delegate = delegate,
-        columnLock = lock,
         canFilter = ids.canFilter,
         target = target,
         customActions = actions,

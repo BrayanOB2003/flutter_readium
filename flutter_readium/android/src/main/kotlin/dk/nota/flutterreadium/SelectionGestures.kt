@@ -3,9 +3,14 @@ package dk.nota.flutterreadium
 /**
  * Injected into each EPUB resource on Android.
  *
- * Book mode: while text is selected, put the column back if the WebView scrolls
- * it to make room for the menu. Scroll mode: a short tap outside the highlight
- * clears the selection, which book mode already does on its own.
+ * Book mode: while text is selected, the column stays on the page where the
+ * selection started. Dragging a handle to the edge, or the menu asking for room,
+ * would otherwise turn the page. The page is noted before the selection exists,
+ * because the WebView can scroll before the first `selectionchange`.
+ * Scroll mode: a short tap outside the highlight clears the selection, which
+ * book mode already does on its own.
+ *
+ * Keep the book-mode part in step with `SelectionPageLock.swift`.
  */
 internal const val SELECTION_GESTURES_JS =
     """
@@ -24,24 +29,44 @@ internal const val SELECTION_GESTURES_JS =
         return document.scrollingElement || document.documentElement;
       }
 
-      var locked = null;
-      document.addEventListener('selectionchange', function () {
+      function hasSelection() {
         var sel = window.getSelection();
-        if (!sel || sel.isCollapsed || scrollMode()) {
-          locked = null;
+        return !!sel && !sel.isCollapsed;
+      }
+
+      function position() {
+        var el = scrollingElement();
+        return { left: el.scrollLeft, top: el.scrollTop };
+      }
+
+      var page = null;
+      var locked = null;
+      var touching = false;
+
+      function notePage() {
+        if (!locked) page = position();
+      }
+
+      function release() {
+        locked = null;
+        page = position();
+      }
+
+      document.addEventListener('selectionchange', function () {
+        if (!hasSelection() || scrollMode()) {
+          release();
           return;
         }
-        if (!locked) {
-          var el = scrollingElement();
-          locked = { left: el.scrollLeft, top: el.scrollTop };
-        }
+        if (!locked) locked = page || position();
       }, true);
 
       window.addEventListener('scroll', function () {
-        if (!locked) return;
-        var sel = window.getSelection();
-        if (!sel || sel.isCollapsed || scrollMode()) {
-          locked = null;
+        if (!locked) {
+          if (!touching) notePage();
+          return;
+        }
+        if (!hasSelection() || scrollMode()) {
+          release();
           return;
         }
         var el = scrollingElement();
@@ -52,11 +77,18 @@ internal const val SELECTION_GESTURES_JS =
 
       var selectionEmptyAtPointerDown = true;
       function notePointerDown() {
-        var sel = window.getSelection();
-        selectionEmptyAtPointerDown = !sel || sel.isCollapsed;
+        selectionEmptyAtPointerDown = !hasSelection();
+        if (selectionEmptyAtPointerDown) notePage();
+        touching = true;
+      }
+      function notePointerUp() {
+        touching = false;
       }
       document.addEventListener('touchstart', notePointerDown, true);
       document.addEventListener('mousedown', notePointerDown, true);
+      document.addEventListener('touchend', notePointerUp, true);
+      document.addEventListener('touchcancel', notePointerUp, true);
+      document.addEventListener('mouseup', notePointerUp, true);
 
       document.addEventListener('click', function (event) {
         if (!scrollMode() || selectionEmptyAtPointerDown) return;

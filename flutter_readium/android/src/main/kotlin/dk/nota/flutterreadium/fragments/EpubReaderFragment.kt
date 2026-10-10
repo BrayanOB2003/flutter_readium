@@ -543,11 +543,9 @@ class EpubReaderFragment :
 
             PluginLog.d(TAG, "::onViewCreated - $instance $view, $savedInstanceState")
 
-            (view as? SelectionMenuFrameLayout)?.decorateActionMode = { source, callback ->
+            (view as? SelectionMenuFrameLayout)?.decorateActionMode = { callback ->
                 decorateSystemSelectionCallback(
                     delegate = callback,
-                    source = source,
-                    bookMode = !scrollMode,
                     context = requireContext(),
                     onTextSelected = ::notifyTextSelected,
                     onCustomAction = ::notifySelectionAction,

@@ -18,7 +18,7 @@ class SelectionMenuFrameLayout
         attrs: AttributeSet? = null,
         defStyleAttr: Int = 0,
     ) : FrameLayout(context, attrs, defStyleAttr) {
-        var decorateActionMode: ((View, ActionMode.Callback) -> ActionMode.Callback)? = null
+        var decorateActionMode: ((ActionMode.Callback) -> ActionMode.Callback)? = null
 
         override fun startActionModeForChild(
             originalView: View,
@@ -29,11 +29,6 @@ class SelectionMenuFrameLayout
             if (decorate == null || type != ActionMode.TYPE_FLOATING || originalView !is WebView) {
                 return super.startActionModeForChild(originalView, callback, type)
             }
-            val wrapped = decorate(originalView, callback)
-            val mode = super.startActionModeForChild(originalView, wrapped, type)
-            if (mode == null) {
-                (wrapped as? SystemSelectionActionModeCallback)?.releaseLock()
-            }
-            return mode
+            return super.startActionModeForChild(originalView, decorate(callback), type)
         }
     }

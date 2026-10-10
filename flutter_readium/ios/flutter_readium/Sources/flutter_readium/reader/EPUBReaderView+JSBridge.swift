@@ -159,6 +159,8 @@ extension EPUBReaderView {
       userScripts.append(WKUserScript(source: addCssScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
     }
 
+    userScripts.append(WKUserScript(source: selectionPageLockScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+
     // Set platform flags
     userScripts.append(WKUserScript(source: "const isAndroid=false,isIos=true;", injectionTime: .atDocumentStart, forMainFrameOnly: false))
 
