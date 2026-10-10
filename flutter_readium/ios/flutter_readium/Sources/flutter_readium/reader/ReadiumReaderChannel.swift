@@ -74,6 +74,14 @@ class ReadiumReaderChannel: FlutterMethodChannel {
     }
   }
 
+  func onTap(x: Double, y: Double) {
+    let json: [String: Any] = ["x": x, "y": y]
+    if let data = try? JSONSerialization.data(withJSONObject: json),
+       let jsonString = String(data: data, encoding: .utf8) {
+      invokeMethod("onTap", arguments: jsonString)
+    }
+  }
+
   func onDecorationInteraction(decorationId: String, group: String, type: String, locator: Locator?) {
     var json: [String: Any] = [
       "decorationId": decorationId,

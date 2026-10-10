@@ -32,6 +32,7 @@ class ReadiumReaderChannel extends MethodChannel {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTap,
   }) {
     setMethodCallHandler(onMethodCall);
   }
@@ -63,6 +64,10 @@ class ReadiumReaderChannel extends MethodChannel {
 
   /// Called when the user taps an image in the EPUB.
   void Function(ImageTapEvent)? onImageTapped;
+
+  /// Called for a tap the navigator did not consume (not on a decoration or a
+  /// link), with the position as a fraction of the reader's width and height.
+  void Function(Offset)? onTap;
 
   /// Go e.g. navigate to a specific locator in the publication.
   Future<void> go(
@@ -200,6 +205,14 @@ class ReadiumReaderChannel extends MethodChannel {
           final event = ImageTapEvent.fromJson(eventJson);
           _log.d('onImageTapped ${event.href}');
           onImageTapped?.call(event);
+
+          return null;
+        case 'onTap':
+          final args = call.arguments as String;
+          final point = json.decode(args) as Map<String, dynamic>;
+          onTap?.call(
+            Offset((point['x'] as num).toDouble(), (point['y'] as num).toDouble()),
+          );
 
           return null;
         default:

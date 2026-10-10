@@ -25,6 +25,7 @@ class ReadiumReaderWidget extends StatefulWidget {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTap,
     this.selectionActions = const [],
     this.fontFamilyDeclarations = const [],
     this.allowedDefaultActions,
@@ -69,6 +70,14 @@ class ReadiumReaderWidget extends StatefulWidget {
   /// does not yet expose a target-element API, so this callback never fires
   /// there. On iOS it uses swift-toolkit's `ImageContentElement` SPI.
   final ValueChanged<ImageTapEvent>? onImageTapped;
+
+  /// Callback invoked for a tap the navigator did not consume: not on a
+  /// decoration, a link, or while text is selected. The position is a
+  /// fraction (0–1) of the reader's width and height.
+  ///
+  /// Edge taps no longer turn pages natively, so a client that sets this
+  /// decides what each tap does. Arrow keys still turn pages.
+  final ValueChanged<Offset>? onTap;
 
   /// Native context menu actions shown when text is selected.
   final List<SelectionAction> selectionActions;
@@ -398,6 +407,7 @@ class _ReadiumReaderWidgetState extends State<ReadiumReaderWidget> implements Re
       onSelectionAction: widget.onSelectionAction,
       onDecorationInteraction: widget.onDecorationInteraction,
       onImageTapped: widget.onImageTapped,
+      onTap: widget.onTap,
     );
 
     if (widget.selectionActions.isNotEmpty) {

@@ -235,11 +235,24 @@ public class EPUBReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, E
     /// Ensure userScripts are initialized for later injection.
     self.ensureUserScriptsInitialized(registrar: registrar)
 
-    /// This adapter will automatically turn pages when the user taps the
-    /// screen edges or presses arrow keys.
+    /// Arrow keys turn pages. Taps are reported to Flutter instead, which
+    /// decides what each part of the screen does.
     DirectionalNavigationAdapter(
-      pointerPolicy: .init(types: [.mouse, .touch])
+      pointerPolicy: .init(types: [])
     ).bind(to: readiumViewController)
+
+    /// Readium does not deliver taps on decorations or links here, so Flutter
+    /// only hears the taps that are meant for the reader chrome.
+    readiumViewController.addObserver(.activate { [weak self] event in
+      guard let self = self else { return false }
+      let size = self.readiumViewController.view.bounds.size
+      guard size.width > 0, size.height > 0 else { return false }
+      self.channel.onTap(
+        x: Double(event.location.x / size.width),
+        y: Double(event.location.y / size.height)
+      )
+      return false
+    })
 
     // Observe decoration interactions for all groups that get applied later.
     // We register a global handler on the well-known "user-highlight" group.

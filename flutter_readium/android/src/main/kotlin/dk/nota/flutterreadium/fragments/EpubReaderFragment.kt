@@ -34,6 +34,8 @@ import org.readium.r2.navigator.epub.css.FontStyle
 import org.readium.r2.navigator.epub.css.FontWeight
 import org.readium.r2.navigator.html.HtmlDecorationTemplate
 import org.readium.r2.navigator.html.HtmlDecorationTemplates
+import org.readium.r2.navigator.input.InputListener
+import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.FontFamily
 import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.ExperimentalReadiumApi
@@ -712,8 +714,24 @@ class EpubReaderFragment :
         }
 
         (epubNavigator as OverflowableNavigator).apply {
-            // This will automatically turn pages when tapping the screen edges or arrow keys.
-            addInputListener(DirectionalNavigationAdapter(this))
+            // Arrow keys turn pages. Taps are reported to Flutter instead, which
+            // decides what each part of the screen does.
+            addInputListener(DirectionalNavigationAdapter(this, tapEdges = emptySet()))
+            // Readium does not deliver taps on decorations or links here, so
+            // Flutter only hears the taps that are meant for the reader chrome.
+            addInputListener(
+                object : InputListener {
+                    override fun onTap(event: TapEvent): Boolean {
+                        val view = publicationView
+                        if (view.width <= 0 || view.height <= 0) return false
+                        ReadiumReader.currentReaderWidget?.channel?.onTap(
+                            x = (event.point.x / view.width).toDouble(),
+                            y = (event.point.y / view.height).toDouble(),
+                        )
+                        return false
+                    }
+                },
+            )
         }
 
         navigator = epubNavigator
