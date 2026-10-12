@@ -10,6 +10,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Selecting text at the top of a page shifted the page on Android.** The selection menu was rebuilt on every pass, and the viewer scrolled the column to make room for it. The menu now stays still once Copy and Share are showing, and the column stays put.
 - **The Android text-selection magnifier showed a black box while dragging a handle.** The reader was a texture-backed platform view, which the magnifier cannot capture. The reader now uses Hybrid Composition, so the magnifier shows the text; this can cost some rendering performance on Android 9 and older.
 - **Text selection on Android was only reported when the app supplied its own menu.** `onTextSelected` now also fires with the system menu, and `allowedDefaultActions` limits that menu. A short tap outside the selection in scroll mode clears it.
+- **iOS: `resume()` after `audioEnable(fromLocator:)` played a media-overlay book from 0:00.**
+  The initial locator was mapped before the media overlays loaded. It is now mapped after they load.
+
+## [0.6.1] - 2026-10-06
+
+### Fixed
+
+- **Web: TTS could stop for good after a speechSynthesis stall.**
+  The stall watchdog treated `speaking: true` with no `onstart` yet as a wedge, which is
+  also what a perfectly normal queued utterance looks like. After two timeouts it emitted
+  `failure` and left the engine stuck, so playback only came back by reloading. The
+  watchdog now waits for real silence, always resets the engine before reporting failure,
+  and can no longer cancel the utterance that replaced it or speak again after `stop()`.
+
+### Added
+
+- **Optional scroll-mode page-turn lock** — Set
+  `ReadiumReaderWidget.disablePageTurnsWhileScrolling` to prevent horizontal gestures from
+  switching EPUB resources while vertically scrolling on iOS and Android. Apps enabling it
+  should provide explicit page or table-of-contents navigation.
+
+### Changed
+
+- **`equatable` 3.x is now supported.** The `flutter_readium_platform_interface` constraint was `^2.1.0`, which blocked apps from upgrading. It is now `>=2.1.0 <4.0.0`. Model equality is unchanged: equatable 3 still compares `runtimeType`, and the models never relied on `EquatableMixin`.
 
 ## [0.6.0] - 2026-09-22
 

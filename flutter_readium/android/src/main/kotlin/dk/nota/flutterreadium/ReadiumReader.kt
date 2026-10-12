@@ -952,6 +952,7 @@ object ReadiumReader :
         initialLocator: Locator?,
         initialPreferences: FlutterEpubPreferences,
         fontFamilyDeclarations: List<ReaderFontFamily>,
+        disablePageTurnsWhileScrolling: Boolean,
         fragmentManager: FragmentManager,
         viewGroup: ViewGroup,
         readerWidget: ReadiumReaderWidget,
@@ -989,6 +990,7 @@ object ReadiumReader :
                 this@ReadiumReader,
                 initialPreferences,
                 fontFamilyDeclarations = fontFamilyDeclarations,
+                disablePageTurnsWhileScrolling = disablePageTurnsWhileScrolling,
             ).apply {
                 initNavigator()
                 visualNavigator = this
@@ -1210,6 +1212,7 @@ object ReadiumReader :
         initialLocator: Locator?,
         initialPreferences: FlutterEpubPreferences,
         fontFamilyDeclarations: List<ReaderFontFamily>,
+        disablePageTurnsWhileScrolling: Boolean,
         fragmentManager: FragmentManager,
         viewGroup: ViewGroup,
         readerWidget: ReadiumReaderWidget,
@@ -1248,6 +1251,7 @@ object ReadiumReader :
                     initialLocator,
                     initialPreferences,
                     fontFamilyDeclarations,
+                    disablePageTurnsWhileScrolling,
                     fragmentManager,
                     viewGroup,
                     readerWidget,
