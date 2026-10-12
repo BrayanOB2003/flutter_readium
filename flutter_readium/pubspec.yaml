@@ -39,7 +39,11 @@ dependencies:
     sdk: flutter
   flutter_web_plugins:
     sdk: flutter
-  flutter_readium_platform_interface: ^0.6.1
+  # Same checkout as this plugin. The interface is not published yet with
+  # EpubTableOpenEvent, and a version constraint would pull pub.dev, which
+  # does not have that type. Upstream still uses ^0.6.1.
+  flutter_readium_platform_interface:
+    path: ../flutter_readium_platform_interface
   wakelock_plus: ^1.7.0
   web: ^1.1.1
   collection: ^1.19.1
@@ -51,11 +55,6 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   plugin_platform_interface: ^2.0.2
   mocktail: ^1.0.0
-
-# NOTE: For local development, when changing platform_interface.
-# dependency_overrides:
-#   flutter_readium_platform_interface:
-#     path: ../flutter_readium_platform_interface
 
 executables:
   copy_js_file:
