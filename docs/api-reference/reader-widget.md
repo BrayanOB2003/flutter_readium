@@ -25,6 +25,7 @@ ReadiumReaderWidget(
   shouldShowControls: true,   // whether built-in nav controls are shown
   verticalScroll: false,      // overrides scroll mode preference
   onExternalLinkActivated: (uri) { /* handle external URLs */ },
+  onTableOpen: (event) { /* book-mode table that did not fit the page */ },
   goBackwardSemanticLabel: 'Previous page',
   goForwardSemanticLabel: 'Next page',
   toggleShowControlsSemanticLabel: 'Toggle controls',
@@ -42,6 +43,7 @@ ReadiumReaderWidget(
 | `shouldShowControls` | `bool` | `true` | Show built-in navigation controls |
 | `verticalScroll` | `bool?` | from preferences | Override scroll/paginated mode |
 | `onExternalLinkActivated` | `void Function(Uri)?` | `null` | Called when the reader activates an external link |
+| `onTableOpen` | `ValueChanged<EpubTableOpenEvent>?` | `null` | Book mode only, iOS and Android. Called when the reader taps the button on a table that did not fit the page. `html` is the publication table; colors and `fontSizePx` match the reader theme. Scroll mode and web do not call this. |
 | `goBackwardSemanticLabel` | `String?` | `null` | Accessibility label for the backward control |
 | `goForwardSemanticLabel` | `String?` | `null` | Accessibility label for the forward control |
 | `toggleShowControlsSemanticLabel` | `String?` | `null` | Accessibility label for the controls toggle |

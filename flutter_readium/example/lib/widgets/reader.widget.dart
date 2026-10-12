@@ -4,6 +4,7 @@ import 'package:flutter_readium/flutter_readium.dart';
 
 import '../state/index.dart';
 import 'full_screen_image_view.dart';
+import 'table_view.page.dart';
 
 final _customFontFamilies = [
   ReaderFontFamily(
@@ -95,6 +96,13 @@ class ReaderWidget extends StatelessWidget {
                   } else if (event.actionId == 'note') {
                     _showNoteDialog(context, event);
                   }
+                },
+                onTableOpen: (event) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TableViewPage(event: event),
+                    ),
+                  );
                 },
                 onImageTapped: (event) {
                   debugPrint('[ImageTap] href=${event.href}');

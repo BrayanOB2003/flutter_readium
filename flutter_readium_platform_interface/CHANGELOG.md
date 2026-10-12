@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Added
+
+- **`EpubTableOpenEvent`** carries a table that book mode could not fit on the page, plus the reader text color, background, and font size.
+
 ## [0.6.1] - 2026-10-06
 
 ### Changed

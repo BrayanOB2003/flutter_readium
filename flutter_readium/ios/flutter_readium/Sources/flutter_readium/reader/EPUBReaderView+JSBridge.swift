@@ -30,6 +30,7 @@ extension EPUBReaderView {
     // Register handler so `window.updateNarrationSync(bool)` in the helper script can reach native.
     // WeakScriptHandler breaks the retain cycle WKUserContentController → handler → EPUBReaderView.
     userContentController.add(WeakScriptHandler(self), name: "narrationSync")
+    userContentController.add(WeakScriptHandler(self), name: "tableViewer")
 
     /// Custom preferences added dynamically for each WebView, to make sure changes to preferences are respected.
     if let preferencesStylesheet = self.preferences.map(effectivePreferences)?.toInjectableStyleSheet() {
@@ -69,10 +70,21 @@ extension EPUBReaderView {
   /// Receives messages from the `window.updateNarrationSync(bool)` bridge injected
   /// by the iOS platform shim (bootstrap script in `initUserScripts`).
   func handleScriptMessage(_ message: WKScriptMessage) {
-    guard message.name == "narrationSync", let enabled = message.body as? Bool else { return }
-    Log.reader.debug("handleScriptMessage: narrationSync=\(enabled)")
-    Task { @MainActor in
-      setNarrationSyncEnabled(enabled)
+    switch message.name {
+    case "narrationSync":
+      guard let enabled = message.body as? Bool else { return }
+      Log.reader.debug("handleScriptMessage: narrationSync=\(enabled)")
+      Task { @MainActor in
+        setNarrationSyncEnabled(enabled)
+      }
+    case "tableViewer":
+      guard let json = message.body as? String else { return }
+      Log.reader.debug("::handleScriptMessage tableViewer \(json.count) chars")
+      Task { @MainActor in
+        channel.onTableOpen(json: json)
+      }
+    default:
+      break
     }
   }
 
@@ -168,6 +180,7 @@ extension EPUBReaderView {
     /// Posting to the "narrationSync" WKScriptMessageHandler delivers the bool to native.
     userScripts.append(WKUserScript(source: """
       window.updateNarrationSync=function(v){webkit.messageHandlers.narrationSync.postMessage(v===true);};
+      window.flutterReadiumOpenTable=function(json){webkit.messageHandlers.tableViewer.postMessage(String(json));};
       """, injectionTime: .atDocumentStart, forMainFrameOnly: false))
 
     /// Workaround for a swift-toolkit defect: when a spread's webview finishes loading,

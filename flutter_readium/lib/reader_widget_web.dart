@@ -20,6 +20,7 @@ class ReadiumReaderWidget extends StatefulWidget {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTableOpen,
     this.onTap,
     this.selectionActions,
     this.allowedDefaultActions,
@@ -41,6 +42,9 @@ class ReadiumReaderWidget extends StatefulWidget {
   final void Function(SelectionActionEvent)? onSelectionAction;
   final void Function(DecorationInteractionEvent)? onDecorationInteraction;
   final ValueChanged<ImageTapEvent>? onImageTapped;
+
+  /// Not fired on web. Book-mode table overflow is handled by the native helpers.
+  final ValueChanged<EpubTableOpenEvent>? onTableOpen;
 
   /// Not reported on web yet.
   final ValueChanged<Offset>? onTap;

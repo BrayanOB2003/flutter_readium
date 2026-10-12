@@ -24,20 +24,18 @@ body > *:first-child {
   word-wrap: break-word;
 }
 
-// Table js and css formatting edited from https://codepen.io/naomir/pen/ZRJZMY, if needed for future reference
-$white: #fff;
+// Table layout. The card (stacked) rules only apply once JS adds .is-stacked,
+// which it does when a column would be narrower than ~7em at the reader font size.
 $light-gray: #ccc;
-$gray: #7c7c7c;
-$darker-gray: #241f20;
-$spacing: 16px;
 
 table {
   border-collapse: collapse;
   border-spacing: 0;
-  margin: 15px 0;
-  width: calc(100% - var(--RS__pageGutter) / 2);
-  // table does not expand past width
-  word-break: break-word;
+  margin: 0.8em 0;
+  width: 100%;
+  max-width: 100%;
+  // Break long tokens only. break-word splits ordinary words as soon as a column gets tight.
+  overflow-wrap: break-word;
 
   h1,
   h2,
@@ -45,10 +43,7 @@ table {
   h4,
   h5,
   h6 {
-    margin: 0; // remove margins from table headings
-  }
-  * {
-    font-size: 1rem;
+    margin: 0;
   }
 
   td,
@@ -56,12 +51,15 @@ table {
     border-collapse: collapse;
     border: 1px solid $light-gray;
     margin: 0;
-    padding: $spacing;
+    padding: 0.5em 0.65em;
     vertical-align: top;
+    // Fixed cell heights clip text once the reader font grows.
+    height: auto !important;
+    max-height: none !important;
   }
 
   caption {
-    margin-bottom: $spacing;
+    margin-bottom: 0.65em;
   }
 
   // table-layout fixed gave some problems where the table rows or cells are getting stacked on top of each other, width and max-width properties fixed it.
@@ -87,26 +85,31 @@ table {
     }
   }
 
-  &.has-first-row-headers {
-    // if header or <strong> elements are placed in the first row (this class is added by JS)
-    tr:first-child {
-      display: none; // hide top table header
-    }
+  &.has-header:not(.is-stacked) {
+    table-layout: auto;
   }
 
-  &.has-header {
-    // special treatment to collapse table with headers
-    border: none !important; // remove table border and instead put border around each table section
+  &.has-header.is-stacked {
+    border: none !important;
+
+    &.has-first-row-headers tr:first-child,
+    thead tr:first-child {
+      display: none;
+    }
 
     tr {
       display: block;
-      margin-bottom: 25px;
+      margin-bottom: 1.25em;
+      break-inside: avoid;
+      page-break-inside: avoid;
 
-      td {
+      td,
+      th {
         border-top-width: 0;
         display: block;
-        width: 100% !important; // override any table cell widths set via page editor
+        width: 100% !important;
         box-sizing: border-box;
+        white-space: normal !important;
 
         &:first-child {
           border-top-width: 1px;
@@ -114,27 +117,82 @@ table {
       }
 
       td:not(.mobile-header):before {
-        background-color: $gray;
-        color: $white;
-        content: attr(data-th); // display table headers above each cell on mobile
+        content: attr(data-th);
         display: block;
-        margin: -$spacing (-$spacing) 5px;
-        padding: calc($spacing / 2) $spacing;
+        font-weight: 700;
+        margin: 0 0 0.35em;
+        color: inherit;
       }
 
       td.mobile-header {
+        font-weight: 700;
         text-transform: uppercase;
-        background-color: $darker-gray !important;
+
         h6 {
-          color: $white;
+          margin: 0;
+          font-weight: 700;
         }
       }
     }
-
-    thead tr:first-child {
-      display: none; // hide top table header
-    }
   }
+}
+
+// iOS and Android apply the reader font size as a percentage on :root.
+// Sizes in px/pt on cells ignore that, so table text stayed put while body text scaled.
+:root[style*='--USER__fontSize'] table :is(th, td, caption),
+:root[style*='--USER__fontSize'] table :is(th, td, caption) *:not(sub):not(sup) {
+  font-size: 1rem !important;
+}
+
+// In scroll mode a wide table can be panned. Book mode must stay inside the page:
+// a stacked table (is-contained) or a clipped grid when cells are merged (is-page-clipped).
+.flutter-readium-table-frame {
+  max-width: 100%;
+}
+
+.flutter-readium-table-frame.is-contained,
+.flutter-readium-table-frame.is-page-clipped {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+.flutter-readium-table-frame.is-page-clipped table {
+  table-layout: fixed !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.flutter-readium-table-open {
+  display: block;
+  margin: 0 0 0.4em auto;
+  padding: 0.25em 0.4em;
+  border: 1px solid currentColor;
+  border-radius: 0.3em;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 0;
+  cursor: pointer;
+
+  svg {
+    display: block;
+    width: 1.15em;
+    height: 1.15em;
+    fill: none;
+    stroke: currentColor;
+  }
+}
+
+:root[style*='readium-scroll-on'] .flutter-readium-table-frame {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+:root[style*='readium-scroll-on'] .flutter-readium-table-frame table:not(.is-stacked) {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
 }
 
 // Spotlight text-fade.

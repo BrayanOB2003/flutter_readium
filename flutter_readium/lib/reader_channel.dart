@@ -32,6 +32,7 @@ class ReadiumReaderChannel extends MethodChannel {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTableOpen,
     this.onTap,
   }) {
     setMethodCallHandler(onMethodCall);
@@ -64,6 +65,9 @@ class ReadiumReaderChannel extends MethodChannel {
 
   /// Called when the user taps an image in the EPUB.
   void Function(ImageTapEvent)? onImageTapped;
+
+  /// Called when the user asks to open a table that book mode could not fit.
+  void Function(EpubTableOpenEvent)? onTableOpen;
 
   /// Called for a tap the navigator did not consume (not on a decoration or a
   /// link), with the position as a fraction of the reader's width and height.
@@ -205,6 +209,14 @@ class ReadiumReaderChannel extends MethodChannel {
           final event = ImageTapEvent.fromJson(eventJson);
           _log.d('onImageTapped ${event.href}');
           onImageTapped?.call(event);
+
+          return null;
+        case 'onTableOpen':
+          final args = call.arguments as String;
+          final eventJson = json.decode(args) as Map<String, dynamic>;
+          final tableEvent = EpubTableOpenEvent.fromJson(eventJson);
+          _log.d('onTableOpen ${tableEvent.html.length} chars');
+          onTableOpen?.call(tableEvent);
 
           return null;
         case 'onTap':

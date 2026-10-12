@@ -55,6 +55,8 @@ internal class ReadiumReaderChannel(
 
     fun onImageTapped(json: String) = launch { invokeMethod("onImageTapped", json) }
 
+    fun onTableOpen(json: String) = launch { invokeMethod("onTableOpen", json) }
+
     fun onTap(
         x: Double,
         y: Double,

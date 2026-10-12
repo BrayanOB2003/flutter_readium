@@ -12,6 +12,7 @@ class ReadiumReaderWidget extends StatelessWidget {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTableOpen,
     this.onTap,
     this.selectionActions = const [],
     this.allowedDefaultActions,
@@ -33,6 +34,7 @@ class ReadiumReaderWidget extends StatelessWidget {
   final ValueChanged<SelectionActionEvent>? onSelectionAction;
   final ValueChanged<DecorationInteractionEvent>? onDecorationInteraction;
   final ValueChanged<ImageTapEvent>? onImageTapped;
+  final ValueChanged<EpubTableOpenEvent>? onTableOpen;
   final ValueChanged<Offset>? onTap;
   final List<SelectionAction> selectionActions;
   final Set<DefaultSelectionAction>? allowedDefaultActions;

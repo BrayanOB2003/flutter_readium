@@ -231,6 +231,11 @@ fun Resource.injectScriptsAndStyles(
                         window.narrationSync.onNarrationSyncChanged(v === true);
                     }
                 };
+                window.flutterReadiumOpenTable = function(json) {
+                    if (window.tableViewer) {
+                        window.tableViewer.open(String(json));
+                    }
+                };
             </script>
             """
 

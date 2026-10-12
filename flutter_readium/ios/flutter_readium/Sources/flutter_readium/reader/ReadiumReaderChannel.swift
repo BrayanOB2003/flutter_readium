@@ -74,6 +74,10 @@ class ReadiumReaderChannel: FlutterMethodChannel {
     }
   }
 
+  func onTableOpen(json: String) {
+    invokeMethod("onTableOpen", arguments: json)
+  }
+
   func onTap(x: Double, y: Double) {
     let json: [String: Any] = ["x": x, "y": y]
     if let data = try? JSONSerialization.data(withJSONObject: json),

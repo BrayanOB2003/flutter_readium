@@ -14,6 +14,7 @@ import dk.nota.flutterreadium.SELECTION_GESTURES_JS
 import dk.nota.flutterreadium.SelectionActionConfig
 import dk.nota.flutterreadium.SelectionMenuFrameLayout
 import dk.nota.flutterreadium.SpotlightStyle
+import dk.nota.flutterreadium.TableViewerInterface
 import dk.nota.flutterreadium.decorateSystemSelectionCallback
 import dk.nota.flutterreadium.effectiveForLayout
 import dk.nota.flutterreadium.isFixed
@@ -684,6 +685,8 @@ class EpubReaderFragment :
 
                     // Register JS→native bridge for window.updateNarrationSync(bool).
                     registerJavascriptInterface(NarrationSyncInterface.JS_NAME) { _ -> NarrationSyncInterface(ReadiumReader) }
+
+                    registerJavascriptInterface(TableViewerInterface.JS_NAME) { _ -> TableViewerInterface(ReadiumReader) }
 
                     // TODO: This is a temporary solution until kotlin-toolkit supports image tap events natively.
                     // Register JS→native bridge for window.onImageTappedCallback(string).

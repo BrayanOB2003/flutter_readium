@@ -8,6 +8,7 @@ export 'reader_highlights.dart';
 export 'reader_image_interaction.dart';
 export 'reader_pdf_preferences.dart';
 export 'reader_selection.dart';
+export 'reader_table_open.dart';
 export 'reader_tts_preferences.dart';
 export 'reader_tts_voice.dart';
 export 'reader_tts_voice_utils.dart';

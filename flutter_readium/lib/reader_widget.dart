@@ -26,6 +26,7 @@ class ReadiumReaderWidget extends StatefulWidget {
     this.onSelectionAction,
     this.onDecorationInteraction,
     this.onImageTapped,
+    this.onTableOpen,
     this.onTap,
     this.selectionActions = const [],
     this.fontFamilyDeclarations = const [],
@@ -72,6 +73,10 @@ class ReadiumReaderWidget extends StatefulWidget {
   /// does not yet expose a target-element API, so this callback never fires
   /// there. On iOS it uses swift-toolkit's `ImageContentElement` SPI.
   final ValueChanged<ImageTapEvent>? onImageTapped;
+
+  /// Called when the user taps the button on a table that book mode could not
+  /// fit on the page. Scroll mode does not emit this. Not fired on web.
+  final ValueChanged<EpubTableOpenEvent>? onTableOpen;
 
   /// Callback invoked for a tap the navigator did not consume: not on a
   /// decoration, a link, or while text is selected. The position is a
@@ -164,6 +169,12 @@ class _ReadiumReaderWidgetState extends State<ReadiumReaderWidget> implements Re
     _enableWakelock();
     _setCurrentWidgetInterface();
     _scrollMode = _defaultPreferences?.scroll ?? false;
+  }
+
+  @override
+  void didUpdateWidget(final ReadiumReaderWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _channel?.onTableOpen = widget.onTableOpen;
   }
 
   @override
@@ -393,6 +404,7 @@ class _ReadiumReaderWidgetState extends State<ReadiumReaderWidget> implements Re
       onSelectionAction: widget.onSelectionAction,
       onDecorationInteraction: widget.onDecorationInteraction,
       onImageTapped: widget.onImageTapped,
+      onTableOpen: widget.onTableOpen,
       onTap: widget.onTap,
     );
 

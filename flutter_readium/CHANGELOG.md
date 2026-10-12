@@ -5,8 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Added
+
+- **Wide tables in book mode stay on their page.** A table wider than the page stacks so it no longer spills onto the next page, or stays a clipped grid when cells are merged. A button on that table calls [`onTableOpen`](../docs/api-reference/reader-widget.md) with the original grid plus the reader font size and colors. Scroll mode is unchanged.
+
 ### Fixed
 
+- **EPUB tables stayed stacked and did not follow font-size changes.** Headed tables were always turned into a single column of cards, and publisher sizes in `px` or `pt` on cells ignored the reader font setting. Tables now keep their columns while each one has room, switch to the stacked layout only when the font size makes columns too narrow, and cell text follows the reader font size.
 - **Selecting text at the top of a page shifted the page on Android.** The selection menu was rebuilt on every pass, and the viewer scrolled the column to make room for it. The menu now stays still once Copy and Share are showing, and the column stays put.
 - **The Android text-selection magnifier showed a black box while dragging a handle.** The reader was a texture-backed platform view, which the magnifier cannot capture. The reader now uses Hybrid Composition, so the magnifier shows the text; this can cost some rendering performance on Android 9 and older.
 - **Text selection on Android was only reported when the app supplied its own menu.** `onTextSelected` now also fires with the system menu, and `allowedDefaultActions` limits that menu. A short tap outside the selection in scroll mode clears it.

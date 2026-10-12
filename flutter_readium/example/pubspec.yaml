@@ -29,6 +29,7 @@ dependencies:
   path_provider: ^2.1.5
   pointer_interceptor: ^0.10.1
   rxdart: ^0.28.0
+  webview_flutter: ^4.13.0
 
 dev_dependencies:
   integration_test:
