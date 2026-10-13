@@ -94,6 +94,10 @@ tmp
 # .codegraph/ carries its own .gitignore (tracked), so no entry needed here.
 *.js
 *.css
+# The reader injects these compiled helpers. A git dependency does not run
+# the helper build, so they have to travel with the repo.
+!flutter_readium/assets/helpers/flutterReadiumTools.js
+!flutter_readium/assets/helpers/flutterReadiumTools.css
 
 # Test fixtures — generated from the readium-test-resources repo by
 # bin/build_test_fixtures (run via bin/install locally, or the
