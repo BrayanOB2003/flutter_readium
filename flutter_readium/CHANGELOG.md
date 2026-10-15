@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **On Android, selecting the first word of a hyphenated paragraph moved the selection handle onto a hyphen.** Blink draws that handle on the paragraph's last hyphen, and dragging the selection can jump there. iOS does not do this. Android no longer hyphenates, so the handle stays on the word; line breaks can change, and the hyphens preference has no effect on Android.
 - **EPUB tables stayed stacked and did not follow font-size changes.** Headed tables were always turned into a single column of cards, and publisher sizes in `px` or `pt` on cells ignored the reader font setting. Tables now keep their columns while each one has room, switch to the stacked layout only when the font size makes columns too narrow, and cell text follows the reader font size.
 - **Selecting text at the top of a page shifted the page on Android.** The selection menu was rebuilt on every pass, and the viewer scrolled the column to make room for it. The menu now stays still once Copy and Share are showing, and the column stays put.
 - **The Android text-selection magnifier showed a black box while dragging a handle.** The reader was a texture-backed platform view, which the magnifier cannot capture. The reader now uses Hybrid Composition, so the magnifier shows the text; this can cost some rendering performance on Android 9 and older.

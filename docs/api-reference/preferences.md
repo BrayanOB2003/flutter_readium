@@ -18,7 +18,7 @@ Controls the visual appearance of the EPUB reader. All fields are optional unles
 | `paragraphIndent` | `double?` | First-line paragraph indent (em units). |
 | `typeScale` | `double?` | Scale applied to all element font sizes. |
 | `textAlign` | `TextAlign?` | Flutter `TextAlign` enum (`left`, `right`, `center`, `justify`, `start`, `end`). |
-| `hyphens` | `bool?` | Enable hyphenation. |
+| `hyphens` | `bool?` | Enable hyphenation. Ignored on Android: hyphenation makes the selection handle jump to a hyphen when the selection starts at the first word of a paragraph. |
 | `ligatures` | `bool?` | Enable ligatures. |
 | `textNormalization` | `bool?` | Normalize text styles to increase accessibility. |
 

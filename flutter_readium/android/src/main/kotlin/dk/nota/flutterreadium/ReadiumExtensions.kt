@@ -221,10 +221,24 @@ fun Resource.injectScriptsAndStyles(
             }
 
         val injectStyle = epubPreferences?.toInjectableStyleSheet()
+        // Blink paints the start selection handle on a paragraph's last hyphen
+        // when a touch selection begins at its first character. WebKit does not.
+        // `hyphens: none` removes those fragments, including soft hyphens.
+        val androidSelectionStyle =
+            """<style>
+                :root.flutter-readium-android,
+                :root.flutter-readium-android * {
+                  -webkit-hyphens: none !important;
+                  -epub-hyphens: none !important;
+                  hyphens: none !important;
+                }
+            </style>
+            """
         val platformScript =
             """<script type="text/javascript">
                 const isAndroid = true;
                 const isIos = false;
+                document.documentElement.classList.add('flutter-readium-android');
                 window.readiumTocIDs = ${jsonEncode(tocIds)};
                 window.updateNarrationSync = function(v) {
                     if (window.narrationSync) {
@@ -239,7 +253,7 @@ fun Resource.injectScriptsAndStyles(
             </script>
             """
 
-        val allLines = assetLines + listOf(platformScript) + listOfNotNull(injectStyle)
+        val allLines = assetLines + listOf(platformScript, androidSelectionStyle) + listOfNotNull(injectStyle)
         val newBlock = "$INJECT_START_MARKER\n${allLines.joinToString("\n")}\n$INJECT_END_MARKER"
 
         val startIdx = content.indexOf(INJECT_START_MARKER)
