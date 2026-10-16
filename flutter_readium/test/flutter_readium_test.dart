@@ -175,6 +175,12 @@ class MockFlutterReadiumPlatform with MockPlatformInterfaceMixin implements Flut
   Future<String> getResourceUrl(String href) async => _maybeThrow('getResourceUrl', 'file:///tmp/$href');
 
   @override
+  Future<int> pageCount(Map<String, Object?> request) async => 0;
+
+  @override
+  Future<void> cancelPageCount(int token) async {}
+
+  @override
   Future<List<TextSearchResult>> searchInPublication(String searchKey) async => [];
 
   void emitLocator(Locator l) => _textLocatorController.add(l);

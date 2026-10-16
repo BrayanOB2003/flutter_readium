@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_readium_platform_interface/flutter_readium_platform_interface.dart';
 
 import 'network_image_codec_switch.dart';
+import 'src/page_count.dart';
 
 export 'package:flutter_readium_platform_interface/flutter_readium_platform_interface.dart';
 export 'reader_widget_switch.dart';
@@ -45,6 +46,13 @@ class FlutterReadium {
   static final _log = ReadiumLog.tag('FlutterReadium');
 
   static FlutterReadiumPlatform get _platform => FlutterReadiumPlatform.instance;
+
+  final PageCountGate _pageCounts = PageCountGate(
+    measure: (request, token) => FlutterReadiumPlatform.instance.pageCount(request.payload(token)),
+    cancel: (token) {
+      FlutterReadiumPlatform.instance.cancelPageCount(token);
+    },
+  );
 
   Future<T> _readiumCall<T>(Future<T> Function() call) => _convertReadiumErrors(call);
 
@@ -84,6 +92,7 @@ class FlutterReadium {
   ///
   /// Returns a [Publication] object representing the opened publication.
   Future<Publication> openPublication(String pubUrl) async {
+    _pageCounts.clear();
     try {
       return await _readiumCall(() => _platform.openPublication(pubUrl));
     } on PlatformException {
@@ -95,7 +104,42 @@ class FlutterReadium {
   }
 
   /// Closes the currently opened publication, if any. This will release any resources associated with the publication and reset the reader state.
-  Future<void> closePublication() => _readiumCall(() => _platform.closePublication());
+  Future<void> closePublication() {
+    _pageCounts.clear();
+    return _readiumCall(() => _platform.closePublication());
+  }
+
+  /// Pages in page-reading mode for the open publication.
+  ///
+  /// [viewportWidth] and [viewportHeight] are the logical pixels of the reader.
+  /// [preferences] supplies the font size, margins, line height and column count.
+  /// The count is cached for that layout. Calls made while the font is still
+  /// changing wait, and only the last layout is measured. Scroll mode is ignored:
+  /// the count always uses page reading.
+  Future<int> pageCount({
+    required double viewportWidth,
+    required double viewportHeight,
+    EPUBPreferences? preferences,
+  }) {
+    final columnCount = switch (preferences?.columnCount) {
+      EpubColumnCount.one => '1',
+      EpubColumnCount.two => '2',
+      _ => 'auto',
+    };
+    return _readiumCall(
+      () => _pageCounts.count(
+        normalizePageCountRequest(
+          viewportWidth: viewportWidth,
+          viewportHeight: viewportHeight,
+          fontSize: preferences?.fontSize ?? 1,
+          pageMargins: preferences?.pageMargins,
+          lineHeight: preferences?.lineHeight,
+          columnCount: columnCount,
+          publisherStyles: preferences?.publisherStyles ?? false,
+        ),
+      ),
+    );
+  }
 
   /// Stream emitting the current status of the visual reader.
   Stream<ReadiumReaderStatus> get onReaderStatusChanged => _platform.onReaderStatusChanged;

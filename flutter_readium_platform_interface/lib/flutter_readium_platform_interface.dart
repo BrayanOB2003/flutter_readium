@@ -274,4 +274,17 @@ abstract class FlutterReadiumPlatform extends PlatformInterface {
   Future<String> getResourceUrl(String href) => throw UnimplementedError(
     'getResourceUrl(href) has not been implemented.',
   );
+
+  /// Counts pages for the open publication in page-reading mode.
+  ///
+  /// [request] carries the reader viewport and the layout settings. [token]
+  /// identifies this run so a newer call can replace it.
+  Future<int> pageCount(Map<String, Object?> request) => throw UnimplementedError(
+    'pageCount() has not been implemented.',
+  );
+
+  /// Abandons the page-count run identified by the previous token.
+  Future<void> cancelPageCount(int token) => throw UnimplementedError(
+    'cancelPageCount() has not been implemented.',
+  );
 }

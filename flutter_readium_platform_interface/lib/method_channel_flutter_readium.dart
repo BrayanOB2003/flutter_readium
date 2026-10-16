@@ -302,6 +302,15 @@ class MethodChannelFlutterReadium extends FlutterReadiumPlatform {
   Future<void> audioSeekBy(Duration offset) => methodChannel.invokeMethod('audioSeekBy', offset.inSeconds);
 
   @override
+  Future<int> pageCount(Map<String, Object?> request) async =>
+      await methodChannel.invokeMethod<int>('pageCount', request) ?? 0;
+
+  @override
+  Future<void> cancelPageCount(int token) async {
+    await methodChannel.invokeMethod<void>('cancelPageCount', token);
+  }
+
+  @override
   Future<String> getResourceUrl(String href) async {
     final result = await methodChannel.invokeMethod<String>(
       'getResourceUrl',

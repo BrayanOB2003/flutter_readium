@@ -697,6 +697,33 @@ public class FlutterReadiumPlugin: NSObject, FlutterPlugin, ReadiumShared.Warnin
         }
       }
 
+    case "cancelPageCount":
+      let token = (call.arguments as? NSNumber)?.intValue ?? call.arguments as? Int ?? 0
+      Task { @MainActor in
+        PageCounter.shared.cancel(token)
+        result(nil)
+      }
+
+    case "pageCount":
+      guard let publication = getCurrentPublication() else {
+        result(FlutterError(code: "NoPublication", message: "No publication currently open", details: nil))
+        return
+      }
+      guard let arguments = call.arguments as? [String: Any] else {
+        result(FlutterError(code: "InvalidArgument", message: "pageCount requires a settings map", details: nil))
+        return
+      }
+      Task { @MainActor in
+        do {
+          let pages = try await PageCounter.shared.count(publication: publication, arguments: arguments)
+          result(pages)
+        } catch PageCountError.superseded {
+          result(FlutterError(code: "PageCountSuperseded", message: "A newer page count replaced this one.", details: nil))
+        } catch {
+          result(FlutterError(code: "PageCountUnavailable", message: "This publication has no pages.", details: nil))
+        }
+      }
+
     case "setNarrationSyncEnabled":
       guard let enabled = call.arguments as? Bool else {
         return result(FlutterError(

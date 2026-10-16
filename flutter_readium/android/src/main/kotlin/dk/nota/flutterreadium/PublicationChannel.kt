@@ -39,6 +39,41 @@ internal class PublicationMethodCallHandler : MethodChannel.MethodCallHandler {
         CoroutineScope(Dispatchers.IO).launch {
             PluginLog.d(TAG, "::onMethodCall method:${call.method} args:${call.arguments}")
 
+            if (call.method == "cancelPageCount") {
+                val token = (call.arguments as? Number)?.toInt()
+                if (token != null) PageCounter.cancel(token)
+                result.success(null)
+                return@launch
+            }
+            if (call.method == "pageCount") {
+                try {
+                    val activity =
+                        ReadiumReader.fragmentActivity
+                            ?: return@launch result.publicationError(
+                                call.method,
+                                PublicationError.Unavailable("No activity is available to measure pages."),
+                            )
+                    val publication =
+                        ReadiumReader.currentPublication
+                            ?: return@launch result.publicationError(
+                                call.method,
+                                PublicationError.NoPublicationOpened(),
+                            )
+                    @Suppress("UNCHECKED_CAST")
+                    val arguments = call.arguments as? Map<String, Any?> ?: emptyMap()
+                    val pages = PageCounter.count(activity, publication, arguments)
+                    result.success(pages)
+                } catch (_: PageCountSupersededException) {
+                    result.error("PageCountSuperseded", "A newer page count replaced this one.", null)
+                } catch (e: PublicationErrorException) {
+                    result.publicationError(call.method, e.publicationError)
+                } catch (e: Exception) {
+                    PluginLog.e(TAG, "pageCount: $e")
+                    result.publicationError(call.method, PublicationError.Unknown(e.message ?: e.toString()))
+                }
+                return@launch
+            }
+
             try {
                 val res =
                     handleMethodCallsQueue(
