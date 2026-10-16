@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="selection_copy">Copy</string>
+    <string name="selection_share">Share</string>
+</resources>

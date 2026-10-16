@@ -306,8 +306,20 @@ class EpubNavigator :
 
         notifyIsReady()
 
+        // Readium paints stored decorations when a page finishes loading but marks
+        // the page loaded later. A list sent in that gap is stored and not painted,
+        // and sending the same list again changes nothing. Clearing the group first
+        // makes Readium repaint it on every loaded page.
         launch {
-            currentDecorations.forEach { (group, decorations) ->
+            currentDecorations.toMap().forEach { (group, decorations) ->
+                android.util.Log.d(
+                    "SelDiag",
+                    "onPageLoaded repaints group=$group count=${decorations.size} nav=${epubNavigator != null}",
+                )
+                epubNavigator?.applyDecorations(
+                    decorations = emptyList(),
+                    group = group,
+                )
                 epubNavigator?.applyDecorations(
                     decorations = decorations,
                     group = group,
@@ -478,6 +490,7 @@ class EpubNavigator :
         navigator: EpubReaderFragment,
         group: String,
     ) {
+        android.util.Log.d("SelDiag", "ensureListener group=$group already=${registeredDecorationGroups.contains(group)}")
         if (registeredDecorationGroups.contains(group)) return
         registeredDecorationGroups.add(group)
 

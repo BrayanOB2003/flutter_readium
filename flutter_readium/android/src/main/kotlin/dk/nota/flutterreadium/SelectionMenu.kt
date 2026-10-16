@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
+import android.util.Log
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
@@ -28,13 +29,32 @@ internal data class SelectionMenuTarget(
         requiredGroups.flatten().toSet() + optionalSystemIds + customIds
 }
 
+private const val STANDALONE_PACKAGE_ID = 0x7f
+private const val RESOURCE_ENTRY_MASK = 0x00ffffff
+
+/**
+ * WebView ids come from the WebView APK opened on its own, where its package
+ * byte is 0x7f. Inside the app the WebView is loaded as a shared library and
+ * gets another byte (0x02 on current devices), so only type and entry count.
+ */
+internal fun menuIdMatches(
+    itemId: Int,
+    knownId: Int,
+): Boolean {
+    if (itemId == knownId) return true
+    if (knownId ushr 24 != STANDALONE_PACKAGE_ID) return false
+    return itemId and RESOURCE_ENTRY_MASK == knownId and RESOURCE_ENTRY_MASK
+}
+
+internal fun Set<Int>.containsMenuId(itemId: Int): Boolean = any { menuIdMatches(itemId, it) }
+
 internal fun selectionMenuIsSettled(
     itemIds: Set<Int>,
     target: SelectionMenuTarget,
 ): Boolean {
-    if (itemIds.any { it !in target.permittedIds }) return false
+    if (itemIds.any { !target.permittedIds.containsMenuId(it) }) return false
     if (target.customIds.any { it !in itemIds }) return false
-    if (target.requiredGroups.any { group -> group.none { it in itemIds } }) return false
+    if (target.requiredGroups.any { group -> itemIds.none { group.containsMenuId(it) } }) return false
     return true
 }
 
@@ -125,16 +145,24 @@ internal class SystemSelectionActionModeCallback(
     private val target: SelectionMenuTarget,
     private val customActions: List<SelectionActionConfig>,
     private val onTextSelected: () -> Unit,
-    private val onCustomAction: (SelectionActionConfig) -> Unit,
+    /** Must call `done` once it has read the selection; finishing the mode clears it. */
+    private val onCustomAction: (action: SelectionActionConfig, done: () -> Unit) -> Unit,
 ) : ActionMode.Callback2() {
     private var preparing = false
+    private var actionPending = false
 
     override fun onCreateActionMode(
         mode: ActionMode,
         menu: Menu,
     ): Boolean {
         val created = delegate.onCreateActionMode(mode, menu)
+        Log.d(
+            "SelDiag",
+            "create created=$created canFilter=$canFilter before=[${menu.describe()}] " +
+                "permitted=${target.permittedIds.map { "0x" + Integer.toHexString(it) }}",
+        )
         if (canFilter) enforce(menu)
+        Log.d("SelDiag", "create after=[${menu.describe()}]")
         onTextSelected()
         return created
     }
@@ -143,17 +171,25 @@ internal class SystemSelectionActionModeCallback(
         mode: ActionMode,
         menu: Menu,
     ): Boolean {
+        Log.d("SelDiag", "prepare preparing=$preparing quiet=${menuIsQuiet(menu)} menu=[${menu.describe()}]")
         if (preparing) return false
         if (menuIsQuiet(menu)) return false
         preparing = true
         try {
             delegate.onPrepareActionMode(mode, menu)
+            Log.d("SelDiag", "prepare delegate=[${menu.describe()}]")
             if (canFilter) enforce(menu)
         } finally {
             preparing = false
         }
+        Log.d("SelDiag", "prepare after=[${menu.describe()}]")
         return false
     }
+
+    private fun Menu.describe(): String =
+        (0 until size()).joinToString { i ->
+            getItem(i).let { "${it.title}=0x${Integer.toHexString(it.itemId)}" }
+        }
 
     override fun onActionItemClicked(
         mode: ActionMode,
@@ -161,15 +197,18 @@ internal class SystemSelectionActionModeCallback(
     ): Boolean {
         val index = item.itemId - SELECTION_CUSTOM_ID_OFFSET
         val action = customActions.getOrNull(index)
+        Log.d("SelDiag", "clicked ${item.title}=0x${Integer.toHexString(item.itemId)} custom=${action?.id}")
         if (action != null) {
-            onCustomAction(action)
-            mode.finish()
+            if (actionPending) return true
+            actionPending = true
+            onCustomAction(action) { mode.finish() }
             return true
         }
         return delegate.onActionItemClicked(mode, item)
     }
 
     override fun onDestroyActionMode(mode: ActionMode) {
+        Log.d("SelDiag", "destroy")
         delegate.onDestroyActionMode(mode)
     }
 
@@ -184,6 +223,13 @@ internal class SystemSelectionActionModeCallback(
         } else {
             super.onGetContentRect(mode, view, outRect)
         }
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        Log.d(
+            "SelDiag",
+            "contentRect=$outRect view=${view.width}x${view.height} scroll=${view.scrollX},${view.scrollY} " +
+                "screen=${location[0]},${location[1]} shown=${view.isShown}",
+        )
     }
 
     private fun menuIsQuiet(menu: Menu): Boolean {
@@ -192,7 +238,7 @@ internal class SystemSelectionActionModeCallback(
     }
 
     private fun enforce(menu: Menu) {
-        val stale = menu.itemIds().filter { it !in target.permittedIds }
+        val stale = menu.itemIds().filter { !target.permittedIds.containsMenuId(it) }
         stale.forEach { menu.removeItem(it) }
         customActions.forEachIndexed { index, action ->
             val id = selectionCustomItemId(index)
@@ -203,12 +249,63 @@ internal class SystemSelectionActionModeCallback(
     }
 }
 
+/**
+ * Selection menu for a selection this page created itself.
+ *
+ * Chromium only shows its toolbar for a selection its own gesture started.
+ * Book mode selects from JavaScript, so Copy and Share are added here and the
+ * [SelectionMenuFrameLayout] wrapper still appends the app's custom actions.
+ */
+internal class BookSelectionActionModeCallback(
+    private val contentRect: Rect,
+    private val copyLabel: String,
+    private val shareLabel: String,
+    private val onCopy: (ActionMode) -> Unit,
+    private val onShare: (ActionMode) -> Unit,
+) : ActionMode.Callback2() {
+    override fun onCreateActionMode(
+        mode: ActionMode,
+        menu: Menu,
+    ): Boolean {
+        menu.add(Menu.NONE, android.R.id.copy, 0, copyLabel)
+        menu.add(Menu.NONE, android.R.id.shareText, 1, shareLabel)
+        return true
+    }
+
+    override fun onPrepareActionMode(
+        mode: ActionMode,
+        menu: Menu,
+    ): Boolean = false
+
+    override fun onActionItemClicked(
+        mode: ActionMode,
+        item: MenuItem,
+    ): Boolean {
+        when (item.itemId) {
+            android.R.id.copy -> onCopy(mode)
+            android.R.id.shareText -> onShare(mode)
+            else -> return false
+        }
+        return true
+    }
+
+    override fun onDestroyActionMode(mode: ActionMode) = Unit
+
+    override fun onGetContentRect(
+        mode: ActionMode,
+        view: View,
+        outRect: Rect,
+    ) {
+        outRect.set(contentRect)
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun decorateSystemSelectionCallback(
     delegate: ActionMode.Callback,
     context: Context,
     onTextSelected: () -> Unit,
-    onCustomAction: (SelectionActionConfig) -> Unit,
+    onCustomAction: (action: SelectionActionConfig, done: () -> Unit) -> Unit,
 ): SystemSelectionActionModeCallback {
     val ids = webViewSelectionIds(context)
     val actions = ReadiumReader.selectionActions

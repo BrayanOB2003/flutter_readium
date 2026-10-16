@@ -26,6 +26,10 @@ class SelectionMenuFrameLayout
             type: Int,
         ): ActionMode? {
             val decorate = decorateActionMode
+            android.util.Log.d(
+                "SelDiag",
+                "startActionMode type=$type webView=${originalView is WebView} decorate=${decorate != null}",
+            )
             if (decorate == null || type != ActionMode.TYPE_FLOATING || originalView !is WebView) {
                 return super.startActionModeForChild(originalView, callback, type)
             }

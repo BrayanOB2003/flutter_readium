@@ -80,6 +80,35 @@ internal class SelectionMenuPolicyTest {
     }
 
     @Test
+    fun `webview ids match whatever package byte the app assigns`() {
+        val lookedUpCopy = 0x7f01010a
+        val lookedUpShare = 0x7f010111
+        val runtimeCopy = 0x0201010a
+        val runtimeShare = 0x02010111
+        val runtimeTranslate = 0x02010113
+        val target =
+            selectionMenuTarget(
+                allowedNames = setOf("copy", "share"),
+                copyIds = setOf(lookedUpCopy, android.R.id.copy),
+                shareIds = setOf(lookedUpShare, android.R.id.shareText),
+                selectAllIds = emptySet(),
+                customIds = setOf(highlight),
+            )
+
+        assertTrue(selectionMenuIsSettled(setOf(runtimeCopy, runtimeShare, highlight), target))
+        assertFalse(selectionMenuIsSettled(setOf(runtimeCopy, runtimeShare, runtimeTranslate, highlight), target))
+        assertFalse(selectionMenuIsSettled(setOf(runtimeShare, highlight), target))
+    }
+
+    @Test
+    fun `only standalone webview ids ignore the package byte`() {
+        assertTrue(menuIdMatches(0x0201010a, 0x7f01010a))
+        assertFalse(menuIdMatches(0x0201010a, 0x0301010a))
+        assertFalse(menuIdMatches(0x02f10000, selectionCustomItemId(0)))
+        assertTrue(menuIdMatches(android.R.id.copy, android.R.id.copy))
+    }
+
+    @Test
     fun `custom action must be present before the menu is quiet`() {
         val target =
             selectionMenuTarget(

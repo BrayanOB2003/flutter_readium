@@ -1,7 +1,14 @@
 package dk.nota.flutterreadium.fragments
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
+import android.view.ActionMode
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.fragment.app.commitNow
 import androidx.lifecycle.lifecycleScope
 import dk.nota.flutterreadium.EpubImageTapBridge
@@ -12,9 +19,11 @@ import dk.nota.flutterreadium.R
 import dk.nota.flutterreadium.ReadiumReader
 import dk.nota.flutterreadium.SELECTION_GESTURES_JS
 import dk.nota.flutterreadium.SelectionActionConfig
+import dk.nota.flutterreadium.SelectionHandleGuard
 import dk.nota.flutterreadium.SelectionMenuFrameLayout
 import dk.nota.flutterreadium.SpotlightStyle
 import dk.nota.flutterreadium.TableViewerInterface
+import dk.nota.flutterreadium.BookSelectionActionModeCallback
 import dk.nota.flutterreadium.decorateSystemSelectionCallback
 import dk.nota.flutterreadium.effectiveForLayout
 import dk.nota.flutterreadium.isFixed
@@ -201,13 +210,21 @@ class EpubReaderFragment :
         }
     }
 
+    /**
+     * Kept here because [onPause] drops the child navigator and [attachNavigator]
+     * builds a new one, which starts without listeners. Readium only treats a tap
+     * on a decoration as such while its group has a listener.
+     */
+    private val decorationListeners =
+        mutableMapOf<String, org.readium.r2.navigator.DecorableNavigator.Listener>()
+
     fun addDecorationListener(
         group: String,
         listener: org.readium.r2.navigator.DecorableNavigator.Listener,
     ) {
-        val navigator =
-            requireOrLog(TAG, epubNavigator, "Navigator not ready.") ?: return
-        navigator.addDecorationListener(group, listener)
+        android.util.Log.d("SelDiag", "addDecorationListener group=$group nav=${epubNavigator != null}")
+        decorationListeners[group] = listener
+        epubNavigator?.addDecorationListener(group, listener)
     }
 
     /**
@@ -585,6 +602,7 @@ class EpubReaderFragment :
     override fun onPause() {
         try {
             PluginLog.d(TAG, "::onPause - $instance")
+            android.util.Log.d("SelDiag", "onPause navigator=${epubNavigator != null}")
 
             epubVm?.locator = currentLocator?.value
 
@@ -691,6 +709,13 @@ class EpubReaderFragment :
                     // TODO: This is a temporary solution until kotlin-toolkit supports image tap events natively.
                     // Register JS→native bridge for window.onImageTappedCallback(string).
                     registerJavascriptInterface("FlutterImageBridge") { _ -> EpubImageTapBridge() }
+
+                    registerJavascriptInterface(SelectionHandleGuard.JS_NAME) { _ ->
+                        SelectionHandleGuard(
+                            onShowMenu = ::showBookSelectionMenu,
+                            onDismissMenu = ::dismissBookSelectionMenu,
+                        )
+                    }
                 }
 
         val fragmentFactory =
@@ -709,6 +734,7 @@ class EpubReaderFragment :
             ) as EpubNavigatorFragment
 
         PluginLog.d(TAG, "::attachNavigator() - $instance - add fragment")
+        android.util.Log.d("SelDiag", "attachNavigator new Readium fragment")
         childFragmentManager.commitNow {
             add(
                 R.id.fragment_reader_container,
@@ -738,6 +764,11 @@ class EpubReaderFragment :
             )
         }
 
+        decorationListeners.forEach { (group, listener) ->
+            android.util.Log.d("SelDiag", "attachNavigator re-adds decoration listener group=$group")
+            epubNavigator.addDecorationListener(group, listener)
+        }
+
         navigator = epubNavigator
         PluginLog.d(TAG, "::attachNavigator() - $instance - got navigator = $navigator")
 
@@ -746,6 +777,84 @@ class EpubReaderFragment :
 
     private suspend fun injectSelectionGestures() {
         evaluateJavascript(SELECTION_GESTURES_JS)
+    }
+
+    private var selectionMenuMode: ActionMode? = null
+
+    private fun showBookSelectionMenu(rect: Rect) {
+        val webView = view?.findActiveWebView()
+        if (webView == null) {
+            android.util.Log.d("SelDiag", "menu webview missing")
+            return
+        }
+        selectionMenuMode?.finish()
+        selectionMenuMode = null
+        webView.requestFocus()
+        val mode =
+            webView.startActionMode(
+                BookSelectionActionModeCallback(
+                    contentRect = rect,
+                    copyLabel = getString(R.string.selection_copy),
+                    shareLabel = getString(R.string.selection_share),
+                    onCopy = { finish -> useSelectionText(finish, share = false) },
+                    onShare = { finish -> useSelectionText(finish, share = true) },
+                ),
+                ActionMode.TYPE_FLOATING,
+            )
+        selectionMenuMode = mode
+        android.util.Log.d("SelDiag", "menu started=${mode != null} rect=$rect")
+    }
+
+    private fun dismissBookSelectionMenu() {
+        selectionMenuMode?.finish()
+        selectionMenuMode = null
+    }
+
+    private fun useSelectionText(
+        mode: ActionMode,
+        share: Boolean,
+    ) {
+        lifecycleScope.launch {
+            try {
+                val text =
+                    (navigator as? SelectableNavigator)
+                        ?.currentSelection()
+                        ?.locator
+                        ?.text
+                        ?.highlight
+                android.util.Log.d("SelDiag", "menu ${if (share) "share" else "copy"} len=${text?.length ?: 0}")
+                if (text.isNullOrEmpty()) return@launch
+                if (share) {
+                    val intent =
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }
+                    startActivity(Intent.createChooser(intent, null))
+                } else {
+                    val clipboard = requireContext().getSystemService(ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("selection", text))
+                }
+            } finally {
+                mode.finish()
+            }
+        }
+    }
+
+    private fun View.findActiveWebView(): WebView? {
+        val candidates = mutableListOf<WebView>()
+        fun walk(node: View) {
+            if (node is WebView && node.isShown && node.width > 0 && node.height > 0) candidates.add(node)
+            if (node is ViewGroup) {
+                for (index in 0 until node.childCount) walk(node.getChildAt(index))
+            }
+        }
+        walk(this)
+        if (candidates.isEmpty()) return null
+        return candidates.maxBy { webView ->
+            val visible = Rect()
+            if (!webView.getGlobalVisibleRect(visible)) 0 else visible.width() * visible.height()
+        }
     }
 
     private fun notifyTextSelected() {
@@ -761,17 +870,31 @@ class EpubReaderFragment :
         }
     }
 
-    private fun notifySelectionAction(action: SelectionActionConfig) {
+    private fun notifySelectionAction(
+        action: SelectionActionConfig,
+        done: () -> Unit,
+    ) {
         PluginLog.d(TAG, "::notifySelectionAction - action: ${action.id}")
         lifecycleScope.launch {
-            val nav = navigator as? SelectableNavigator ?: return@launch
-            val selection = nav.currentSelection() ?: return@launch
-            val channel = ReadiumReader.currentReaderWidget?.channel ?: return@launch
-            channel.onSelectionAction(
-                action.id,
-                selection.locator,
-                selection.locator.text.highlight,
-            )
+            try {
+                val nav = navigator as? SelectableNavigator
+                android.util.Log.d("SelDiag", "action ${action.id} navigator=${nav != null}")
+                if (nav == null) return@launch
+                val selection = nav.currentSelection()
+                android.util.Log.d("SelDiag", "action selection=${selection?.locator?.text?.highlight?.take(40)}")
+                if (selection == null) {
+                    PluginLog.w(TAG, "::notifySelectionAction - no selection for ${action.id}")
+                    return@launch
+                }
+                val channel = ReadiumReader.currentReaderWidget?.channel ?: return@launch
+                channel.onSelectionAction(
+                    action.id,
+                    selection.locator,
+                    selection.locator.text.highlight,
+                )
+            } finally {
+                done()
+            }
         }
     }
 
