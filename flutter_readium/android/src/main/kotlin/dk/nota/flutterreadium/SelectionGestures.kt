@@ -32,6 +32,22 @@ internal const val SELECTION_GESTURES_JS =
     (function () {
       if (window.__flutterReadiumSelectionGestures) return;
       window.__flutterReadiumSelectionGestures = true;
+      ensureSelectionStyle();
+      syncBookSelection();
+
+      function syncBookSelection() {
+        document.documentElement.classList.toggle('fr-book-selection', !scrollMode());
+      }
+
+      function ensureSelectionStyle() {
+        if (document.getElementById('fr-selection-style')) return;
+        var style = document.createElement('style');
+        style.id = 'fr-selection-style';
+        style.textContent = '.fr-book-selection ::selection, .fr-book-selection ::-moz-selection {' +
+          'background-color: transparent !important; color: inherit !important;}' +
+          '::highlight(fr-selection) { background-color: var(--RS__selectionBackgroundColor, #b4d8fe); color: inherit; }';
+        (document.head || document.documentElement).appendChild(style);
+      }
 
       function scrollMode() {
         var style = document.documentElement.style;
@@ -81,6 +97,7 @@ internal const val SELECTION_GESTURES_JS =
 
       if (typeof MutationObserver !== 'undefined') {
         new MutationObserver(function (records) {
+          syncBookSelection();
           if (!hasSelection()) return;
           var first = records[0];
           var added = first.addedNodes;
@@ -225,8 +242,6 @@ internal const val SELECTION_GESTURES_JS =
             which: which,
             dx: touch.clientX - (box.left + box.width / 2),
             dy: touch.clientY - box.top,
-            grabX: touch.clientX,
-            grabY: touch.clientY,
             anchorNode: anchorNode,
             anchorOffset: anchorOffset,
             lastRect: null,
@@ -245,16 +260,11 @@ internal const val SELECTION_GESTURES_JS =
           event.stopPropagation();
           holdSelecting();
           var touch = event.changedTouches[0];
-          // The caret snaps between glyphs. Following it is what shakes the
-          // handle, so the handle tracks the finger and the highlight tracks
-          // the caret.
-          el.style.transform = 'translate(' + (touch.clientX - drag.grabX) + 'px,' + (touch.clientY - drag.grabY) + 'px)';
           moveEndpoint(which, touch.clientX - drag.dx, touch.clientY - drag.dy);
         }, { passive: false });
         function endDrag() {
           if (!drag || drag.which !== which) return;
           drag = null;
-          el.style.transform = '';
           commitNative();
           restoreColumn('commit');
           ignoreClickUntil = Date.now() + 800;
@@ -287,13 +297,6 @@ internal const val SELECTION_GESTURES_JS =
         ensureLayer();
         var origin = originProbe.getBoundingClientRect();
         return { x: x - origin.left, y: y - origin.top };
-      }
-
-      function placeAt(el, x, y) {
-        el.style.display = 'block';
-        var point = toLayer(x, y);
-        el.style.left = point.x + 'px';
-        el.style.top = point.y + 'px';
       }
 
       function caretBox(hit) {
@@ -368,7 +371,16 @@ internal const val SELECTION_GESTURES_JS =
         el.style.top = point.y + 'px';
       }
 
+      function paintHighlight(range) {
+        if (!window.CSS || !CSS.highlights || typeof Highlight !== 'function') return false;
+        if (!range) CSS.highlights.delete('fr-selection');
+        else CSS.highlights.set('fr-selection', new Highlight(range));
+        return true;
+      }
+
       function paint() {
+        syncBookSelection();
+        var highlighted = paintHighlight(customRange);
         if (!customRange) {
           boxes.forEach(function (box) { box.remove(); });
           boxes = [];
@@ -380,25 +392,17 @@ internal const val SELECTION_GESTURES_JS =
         boxes.forEach(function (box) { box.remove(); });
         boxes = [];
         var rects = visibleRects(customRange);
-        for (var i = 0; i < rects.length; i++) {
-          var rect = rects[i];
-          var point = toLayer(rect.left, rect.top);
-          var box = document.createElement('div');
-          box.setAttribute('data-fr-selection', '1');
-          box.style.cssText = 'position:fixed;z-index:1;pointer-events:none;background-color:rgba(180,216,254,0.55) !important;' +
-            'left:' + point.x + 'px;top:' + point.y + 'px;width:' + Math.max(1, rect.width) + 'px;height:' + rect.height + 'px;';
-          layer.appendChild(box);
-          boxes.push(box);
-        }
-        if (drag) {
-          var anchorIsStart = customRange.startContainer === drag.anchorNode &&
-            customRange.startOffset === drag.anchorOffset;
-          var anchorRect = anchorIsStart ? rects[0] : rects[rects.length - 1];
-          var other = drag.which === 'start' ? handles.end : handles.start;
-          if (anchorRect) {
-            placeAt(other, anchorIsStart ? anchorRect.left : anchorRect.right, anchorRect.top);
+        if (!highlighted) {
+          for (var i = 0; i < rects.length; i++) {
+            var rect = rects[i];
+            var point = toLayer(rect.left, rect.top);
+            var box = document.createElement('div');
+            box.setAttribute('data-fr-selection', '1');
+            box.style.cssText = 'position:fixed;z-index:1;pointer-events:none;background-color:#b4d8fe !important;opacity:0.45;' +
+              'left:' + point.x + 'px;top:' + point.y + 'px;width:' + Math.max(1, rect.width) + 'px;height:' + rect.height + 'px;';
+            layer.appendChild(box);
+            boxes.push(box);
           }
-          return;
         }
         placeHandle(handles.start, rects[0], 'start');
         placeHandle(handles.end, rects[rects.length - 1], 'end');
