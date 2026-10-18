@@ -892,6 +892,11 @@ class EpubReaderFragment :
                     selection.locator,
                     selection.locator.text.highlight,
                 )
+                if (action.id == "save") {
+                    evaluateJavascript(
+                        "window.__flutterReadiumClearSelection && window.__flutterReadiumClearSelection()",
+                    )
+                }
             } finally {
                 done()
             }

@@ -501,10 +501,47 @@ internal const val SELECTION_GESTURES_JS =
         customRange = range;
         if (!locked) locked = page || position();
         ignoreClickUntil = Date.now() + 700;
+        holdSelecting();
         paint();
         console.log('SelDiag custom begin len=' + range.toString().length);
-        commitNative();
       }
+
+      // The finger is still down after the word is selected. The end it moves
+      // toward follows it, so the selection can grow without grabbing a handle.
+      function armFingerDrag(x, y) {
+        if (!customRange || !press) return;
+        var dx = x - press.x;
+        var dy = y - press.y;
+        var which = dy > 2 || (Math.abs(dy) <= 2 && dx >= 0) ? 'end' : 'start';
+        drag = {
+          which: which,
+          dx: 0,
+          dy: 0,
+          anchorNode: which === 'end' ? customRange.startContainer : customRange.endContainer,
+          anchorOffset: which === 'end' ? customRange.startOffset : customRange.endOffset,
+          lastRect: null,
+        };
+        holdSelecting();
+        dismissMenu();
+        var sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+      }
+
+      function finishFingerDrag() {
+        if (!press || !press.active) return;
+        var moved = press.dragging;
+        press = null;
+        if (!customRange) return;
+        if (moved) drag = null;
+        commitNative();
+        restoreColumn('commit');
+        ignoreClickUntil = Date.now() + 800;
+        paint();
+      }
+
+      window.__flutterReadiumClearSelection = function () {
+        clearCustom();
+      };
 
       var press = null;
       document.addEventListener('selectstart', function (event) {
@@ -522,25 +559,56 @@ internal const val SELECTION_GESTURES_JS =
         press = {
           x: touch.clientX,
           y: touch.clientY,
+          active: false,
+          dragging: false,
           timer: setTimeout(function () {
-            var point = press;
-            press = null;
-            if (!point) return;
-            beginSelection(point.x, point.y);
+            if (!press) return;
+            beginSelection(press.x, press.y);
+            if (!customRange) {
+              clearTimeout(press.timer);
+              press = null;
+              return;
+            }
+            press.active = true;
           }, 380),
         };
       }, true);
       document.addEventListener('touchmove', function (event) {
         if (!press || !event.touches.length) return;
         var touch = event.touches[0];
-        if (Math.abs(touch.clientX - press.x) > 8 || Math.abs(touch.clientY - press.y) > 8) {
-          clearTimeout(press.timer);
-          press = null;
+        if (!press.active) {
+          if (Math.abs(touch.clientX - press.x) > 8 || Math.abs(touch.clientY - press.y) > 8) {
+            clearTimeout(press.timer);
+            press = null;
+          }
+          return;
         }
-      }, true);
+        if (!press.dragging) {
+          if (Math.abs(touch.clientX - press.x) <= 8 && Math.abs(touch.clientY - press.y) <= 8) return;
+          press.dragging = true;
+          armFingerDrag(touch.clientX, touch.clientY);
+        }
+        if (!drag) return;
+        event.preventDefault();
+        holdSelecting();
+        moveEndpoint(drag.which, touch.clientX, touch.clientY);
+      }, { capture: true, passive: false });
       document.addEventListener('touchend', function () {
         if (!press) return;
         clearTimeout(press.timer);
+        if (press.active) {
+          finishFingerDrag();
+          return;
+        }
+        press = null;
+      }, true);
+      document.addEventListener('touchcancel', function () {
+        if (!press) return;
+        clearTimeout(press.timer);
+        if (press.active) {
+          finishFingerDrag();
+          return;
+        }
         press = null;
       }, true);
 

@@ -27,6 +27,9 @@ extension EPUBReaderView {
     let locator = selection.locator
     let selectedText = locator.text.highlight
     channel.onSelectionAction(actionId: actionId, locator: locator, selectedText: selectedText)
+    if actionId == "save" {
+      readiumViewController.clearSelection()
+    }
   }
 
   func getCurrentSelection() -> Locator? {
