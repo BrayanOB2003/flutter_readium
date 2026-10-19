@@ -20,6 +20,7 @@ package dk.nota.flutterreadium
  * upper part of a column to the previous page and then scrolls to reveal them,
  * which fights Readium's scroll block. The handles and the highlight are drawn
  * here, and a hit is kept only when it lands on the line under the finger.
+ * A drag keeps the latest point and paints it once per frame.
  * The DOM selection is installed when the finger lifts, so the system menu can
  * copy, share, and save the quote. Chromium's own handles are hidden by
  * `SelectionHandleGuard`.
@@ -97,6 +98,16 @@ internal const val SELECTION_GESTURES_JS =
 
       if (typeof MutationObserver !== 'undefined') {
         new MutationObserver(function (records) {
+          var ownChange = true;
+          for (var recordIndex = 0; recordIndex < records.length; recordIndex++) {
+            var changed = records[recordIndex].target;
+            if (!changed || changed.nodeType !== 1 || !changed.hasAttribute ||
+                !changed.hasAttribute('data-fr-selection')) {
+              ownChange = false;
+              break;
+            }
+          }
+          if (ownChange) return;
           syncBookSelection();
           if (!hasSelection()) return;
           var first = records[0];
@@ -140,8 +151,8 @@ internal const val SELECTION_GESTURES_JS =
         if (!locked) return;
         var el = scrollingElement();
         if (el.scrollLeft !== locked.left || el.scrollTop !== locked.top) {
+          layerOrigin = null;
           console.log('SelDiag snap (' + reason + ') from ' + el.scrollLeft + ',' + el.scrollTop + ' to ' + locked.left + ',' + locked.top + ' touching=' + touching);
-          ignoreClickUntil = Date.now() + 800;
           el.scrollTo(locked.left, locked.top);
         }
       }
@@ -157,11 +168,14 @@ internal const val SELECTION_GESTURES_JS =
 
       var customRange = null;
       var drag = null;
+      var pendingMove = null;
+      var moveFrame = 0;
+      var lastRejectLog = 0;
       var layer = null;
       var originProbe = null;
+      var layerOrigin = null;
       var handles = { start: null, end: null };
       var boxes = [];
-      var ignoreClickUntil = 0;
 
       function holdSelecting() {
         if (window.Android && Android.onSelectionStart) Android.onSelectionStart();
@@ -223,7 +237,7 @@ internal const val SELECTION_GESTURES_JS =
         var el = document.createElement('div');
         el.setAttribute('data-fr-selection', '1');
         el.setAttribute('data-fr-handle', which);
-        el.style.cssText = 'position:fixed;z-index:2;width:44px;height:52px;margin-left:-22px;display:none;pointer-events:auto;touch-action:none;';
+        el.style.cssText = 'position:fixed;z-index:2;left:0;top:0;width:44px;height:52px;margin-left:-22px;display:none;pointer-events:auto;touch-action:none;will-change:transform;';
         var stem = document.createElement('div');
         stem.style.cssText = 'width:2px;height:16px;margin:0 auto;background-color:#1a73e8 !important;';
         var knob = document.createElement('div');
@@ -244,10 +258,8 @@ internal const val SELECTION_GESTURES_JS =
             dy: touch.clientY - box.top,
             anchorNode: anchorNode,
             anchorOffset: anchorOffset,
-            lastRect: null,
           };
-          el.style.transform = '';
-          ignoreClickUntil = Date.now() + 700;
+          gestureAdjustsSelection = true;
           dismissMenu();
           var sel = window.getSelection();
           if (sel) sel.removeAllRanges();
@@ -258,16 +270,15 @@ internal const val SELECTION_GESTURES_JS =
           if (!drag || drag.which !== which || !event.changedTouches.length) return;
           event.preventDefault();
           event.stopPropagation();
-          holdSelecting();
           var touch = event.changedTouches[0];
-          moveEndpoint(which, touch.clientX - drag.dx, touch.clientY - drag.dy);
+          queueEndpoint(which, touch.clientX - drag.dx, touch.clientY - drag.dy);
         }, { passive: false });
         function endDrag() {
           if (!drag || drag.which !== which) return;
+          flushMove();
           drag = null;
           commitNative();
           restoreColumn('commit');
-          ignoreClickUntil = Date.now() + 800;
           paint();
         }
         el.addEventListener('touchend', endDrag);
@@ -295,36 +306,46 @@ internal const val SELECTION_GESTURES_JS =
       // not viewport coordinates. The probe measures that shift.
       function toLayer(x, y) {
         ensureLayer();
-        var origin = originProbe.getBoundingClientRect();
-        return { x: x - origin.left, y: y - origin.top };
+        if (!layerOrigin) {
+          var origin = originProbe.getBoundingClientRect();
+          layerOrigin = { left: origin.left, top: origin.top };
+        }
+        return { x: x - layerOrigin.left, y: y - layerOrigin.top };
       }
 
-      function caretBox(hit) {
-        var rects = hit.getClientRects();
-        var rect = rects.length ? rects[0] : hit.getBoundingClientRect();
+      // One hit test. The caret under the finger is enough; extra probes were
+      // what left the highlight a few events behind a fast drag.
+      function caretHit(x, y) {
+        if (!document.caretRangeFromPoint) return null;
+        var range = document.caretRangeFromPoint(x, y);
+        if (!range || !range.startContainer) return null;
+        var rects = range.getClientRects();
+        var rect = rects.length ? rects[0] : range.getBoundingClientRect();
         if (!rect || rect.height < 1) return null;
-        return rect;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        if (rect.right < 0 || rect.left > vw || rect.bottom < 0 || rect.top > vh) return null;
+        var mid = (rect.top + rect.bottom) / 2;
+        if (Math.abs(y - mid) > Math.max(rect.height * 1.25, 22)) return null;
+        if (x < rect.left - 64 || x > rect.right + 64) return null;
+        return { range: range, rect: rect };
       }
 
       function caretNear(x, y) {
-        var exact = caretAt(x, y);
-        if (exact) return exact;
-        var best = null;
-        var bestDist = Infinity;
-        var shifts = [8, -8, 16, -16, 24, -24];
-        for (var i = 0; i < shifts.length; i++) {
-          var hit = caretAt(x, y + shifts[i]);
-          var rect = hit ? caretBox(hit) : null;
-          if (!rect) continue;
-          var dist = Math.abs((rect.top + rect.bottom) / 2 - y);
-          if (dist < bestDist) {
-            bestDist = dist;
-            best = hit;
+        var hit = caretHit(x, y);
+        if (hit && y >= hit.rect.top && y <= hit.rect.bottom) return hit;
+        if (hit) {
+          var mid = (hit.rect.top + hit.rect.bottom) / 2;
+          var nudge = y < mid ? y - hit.rect.height * 0.75 : y + hit.rect.height * 0.75;
+          var other = caretHit(x, nudge);
+          if (other) {
+            var otherMid = (other.rect.top + other.rect.bottom) / 2;
+            if (Math.abs(otherMid - y) < Math.abs(mid - y)) return other;
           }
+          return hit;
         }
-        if (best) return best;
         var clampedX = Math.max(16, Math.min(window.innerWidth - 16, x));
-        if (clampedX !== x) return caretAt(clampedX, y);
+        if (clampedX !== x) return caretHit(clampedX, y);
         return null;
       }
 
@@ -346,18 +367,19 @@ internal const val SELECTION_GESTURES_JS =
         return next.collapsed ? null : next;
       }
 
-      function staysOnPage(range) {
-        var rects = range.getClientRects();
+      function pageRects(range) {
+        var all = range.getClientRects();
         var vw = window.innerWidth;
         var vh = window.innerHeight;
-        var onPage = 0;
-        for (var i = 0; i < rects.length; i++) {
-          var rect = rects[i];
+        var kept = [];
+        for (var i = 0; i < all.length; i++) {
+          var rect = all[i];
           if (rect.width < 1 || rect.height < 1) continue;
-          if (rect.left < -12 || rect.right > vw + 12 || rect.top < -12 || rect.bottom > vh + 12) return false;
-          onPage++;
+          if (rect.left < -12 || rect.right > vw + 12 || rect.top < -12 || rect.bottom > vh + 12) return null;
+          if (rect.right <= 0 || rect.left >= vw || rect.bottom <= 0 || rect.top >= vh) continue;
+          kept.push(rect);
         }
-        return onPage > 0;
+        return kept.length ? kept : null;
       }
 
       function placeHandle(el, rect, which) {
@@ -365,10 +387,9 @@ internal const val SELECTION_GESTURES_JS =
           el.style.display = 'none';
           return;
         }
-        el.style.display = 'block';
+        if (el.style.display !== 'block') el.style.display = 'block';
         var point = toLayer(which === 'end' ? rect.right : rect.left, rect.top);
-        el.style.left = point.x + 'px';
-        el.style.top = point.y + 'px';
+        el.style.transform = 'translate3d(' + point.x + 'px,' + point.y + 'px,0)';
       }
 
       function paintHighlight(range) {
@@ -378,8 +399,7 @@ internal const val SELECTION_GESTURES_JS =
         return true;
       }
 
-      function paint() {
-        syncBookSelection();
+      function paint(rects) {
         var highlighted = paintHighlight(customRange);
         if (!customRange) {
           boxes.forEach(function (box) { box.remove(); });
@@ -389,9 +409,11 @@ internal const val SELECTION_GESTURES_JS =
           return;
         }
         ensureLayer();
-        boxes.forEach(function (box) { box.remove(); });
-        boxes = [];
-        var rects = visibleRects(customRange);
+        if (boxes.length) {
+          boxes.forEach(function (box) { box.remove(); });
+          boxes = [];
+        }
+        if (!rects) rects = visibleRects(customRange);
         if (!highlighted) {
           for (var i = 0; i < rects.length; i++) {
             var rect = rects[i];
@@ -408,29 +430,58 @@ internal const val SELECTION_GESTURES_JS =
         placeHandle(handles.end, rects[rects.length - 1], 'end');
       }
 
+      function sameRange(left, right) {
+        return !!left && !!right &&
+          left.startContainer === right.startContainer &&
+          left.startOffset === right.startOffset &&
+          left.endContainer === right.endContainer &&
+          left.endOffset === right.endOffset;
+      }
+
+      function logReject(which, x, y) {
+        var now = Date.now();
+        if (now - lastRejectLog < 200) return;
+        lastRejectLog = now;
+        console.log('SelDiag custom reject ' + which + ' x=' + Math.round(x) + ' y=' + Math.round(y));
+      }
+
       function moveEndpoint(which, x, y) {
         var hit = caretNear(x, y);
         if (!hit || !drag) {
-          console.log('SelDiag custom reject ' + which + ' x=' + Math.round(x) + ' y=' + Math.round(y));
+          logReject(which, x, y);
           return;
         }
         var next = null;
         try {
-          next = rangeBetween(drag.anchorNode, drag.anchorOffset, hit.startContainer, hit.startOffset);
+          next = rangeBetween(drag.anchorNode, drag.anchorOffset, hit.range.startContainer, hit.range.startOffset);
         } catch (error) {
           return;
         }
-        if (!next || !staysOnPage(next)) return;
-        var rect = caretBox(hit);
-        if (rect && drag.lastRect) {
-          var lastMid = (drag.lastRect.top + drag.lastRect.bottom) / 2;
-          var mid = (rect.top + rect.bottom) / 2;
-          var lineChanged = Math.abs(mid - lastMid) > Math.max(8, drag.lastRect.height * 0.75);
-          if (lineChanged && Math.abs(y - lastMid) + 8 < Math.abs(y - mid)) return;
-        }
-        if (rect) drag.lastRect = rect;
+        if (!next || sameRange(customRange, next)) return;
+        var rects = pageRects(next);
+        if (!rects) return;
         customRange = next;
-        paint();
+        paint(rects);
+      }
+
+      function queueEndpoint(which, x, y) {
+        pendingMove = { which: which, x: x, y: y };
+        if (moveFrame) return;
+        moveFrame = requestAnimationFrame(function () {
+          moveFrame = 0;
+          flushMove();
+        });
+      }
+
+      function flushMove() {
+        if (moveFrame) {
+          cancelAnimationFrame(moveFrame);
+          moveFrame = 0;
+        }
+        var move = pendingMove;
+        pendingMove = null;
+        if (!move || !drag || drag.which !== move.which) return;
+        moveEndpoint(move.which, move.x, move.y);
       }
 
       function commitNative() {
@@ -484,6 +535,11 @@ internal const val SELECTION_GESTURES_JS =
       function clearCustom() {
         customRange = null;
         drag = null;
+        pendingMove = null;
+        if (moveFrame) {
+          cancelAnimationFrame(moveFrame);
+          moveFrame = 0;
+        }
         dismissMenu();
         paint();
         var sel = window.getSelection();
@@ -492,6 +548,7 @@ internal const val SELECTION_GESTURES_JS =
       }
 
       function beginSelection(x, y) {
+        syncBookSelection();
         var hit = caretAt(x, y);
         var range = hit ? wordRange(hit) : null;
         if (!range || range.collapsed) {
@@ -500,7 +557,6 @@ internal const val SELECTION_GESTURES_JS =
         }
         customRange = range;
         if (!locked) locked = page || position();
-        ignoreClickUntil = Date.now() + 700;
         holdSelecting();
         paint();
         console.log('SelDiag custom begin len=' + range.toString().length);
@@ -513,13 +569,13 @@ internal const val SELECTION_GESTURES_JS =
         var dx = x - press.x;
         var dy = y - press.y;
         var which = dy > 2 || (Math.abs(dy) <= 2 && dx >= 0) ? 'end' : 'start';
+        gestureAdjustsSelection = true;
         drag = {
           which: which,
           dx: 0,
           dy: 0,
           anchorNode: which === 'end' ? customRange.startContainer : customRange.endContainer,
           anchorOffset: which === 'end' ? customRange.startOffset : customRange.endOffset,
-          lastRect: null,
         };
         holdSelecting();
         dismissMenu();
@@ -532,10 +588,10 @@ internal const val SELECTION_GESTURES_JS =
         var moved = press.dragging;
         press = null;
         if (!customRange) return;
+        flushMove();
         if (moved) drag = null;
         commitNative();
         restoreColumn('commit');
-        ignoreClickUntil = Date.now() + 800;
         paint();
       }
 
@@ -590,8 +646,7 @@ internal const val SELECTION_GESTURES_JS =
         }
         if (!drag) return;
         event.preventDefault();
-        holdSelecting();
-        moveEndpoint(drag.which, touch.clientX, touch.clientY);
+        queueEndpoint(drag.which, touch.clientX, touch.clientY);
       }, { capture: true, passive: false });
       document.addEventListener('touchend', function () {
         if (!press) return;
@@ -651,10 +706,15 @@ internal const val SELECTION_GESTURES_JS =
       }, true);
 
       var selectionEmptyAtPointerDown = true;
-      function notePointerDown() {
+      var gestureHadSelection = false;
+      var gestureAdjustsSelection = false;
+      function notePointerDown(event) {
         selectionEmptyAtPointerDown = !hasSelection();
         if (selectionEmptyAtPointerDown) notePage();
         touching = true;
+        var target = event && event.target;
+        gestureHadSelection = !!customRange;
+        gestureAdjustsSelection = !!(target && target.closest && target.closest('[data-fr-handle]'));
       }
       function notePointerUp() {
         touching = false;
@@ -684,7 +744,7 @@ internal const val SELECTION_GESTURES_JS =
       }, true);
 
       document.addEventListener('click', function (event) {
-        if (scrollMode() || !customRange || Date.now() < ignoreClickUntil) return;
+        if (scrollMode() || !customRange || !gestureHadSelection || gestureAdjustsSelection) return;
         var target = event.target;
         if (target && target.closest && target.closest('[data-fr-handle]')) return;
         var rects = visibleRects(customRange);
@@ -695,6 +755,8 @@ internal const val SELECTION_GESTURES_JS =
             return;
           }
         }
+        event.preventDefault();
+        event.stopPropagation();
         clearCustom();
       }, true);
     })();
