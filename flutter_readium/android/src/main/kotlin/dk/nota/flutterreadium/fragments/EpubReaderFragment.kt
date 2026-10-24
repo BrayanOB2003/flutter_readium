@@ -4,11 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import android.widget.Magnifier
+import androidx.annotation.RequiresApi
 import androidx.fragment.app.commitNow
 import androidx.lifecycle.lifecycleScope
 import dk.nota.flutterreadium.EpubImageTapBridge
@@ -603,6 +606,7 @@ class EpubReaderFragment :
         try {
             PluginLog.d(TAG, "::onPause - $instance")
             android.util.Log.d("SelDiag", "onPause navigator=${epubNavigator != null}")
+            hideSelectionMagnifier()
 
             epubVm?.locator = currentLocator?.value
 
@@ -714,6 +718,8 @@ class EpubReaderFragment :
                         SelectionHandleGuard(
                             onShowMenu = ::showBookSelectionMenu,
                             onDismissMenu = ::dismissBookSelectionMenu,
+                            onMagnifierMove = ::moveSelectionMagnifier,
+                            onMagnifierHide = ::hideSelectionMagnifier,
                         )
                     }
                 }
@@ -808,6 +814,57 @@ class EpubReaderFragment :
     private fun dismissBookSelectionMenu() {
         selectionMenuMode?.finish()
         selectionMenuMode = null
+    }
+
+    private var selectionMagnifier: Magnifier? = null
+    private var selectionMagnifierHost: View? = null
+
+    // Book mode draws the selection itself, so Chromium never opens its loupe.
+    // Magnifier samples the WebView pixels. That is the text only under Hybrid Composition.
+    private fun moveSelectionMagnifier(x: Float, y: Float, viewportWidth: Float, viewportHeight: Float) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
+        val webView = view?.findActiveWebView() ?: return
+        if (webView.width < 2 || webView.height < 2) return
+        val magnifier = magnifierFor(webView)
+        val scaleX = webView.width / viewportWidth
+        val scaleY = webView.height / viewportHeight
+        val px = (x * scaleX).coerceIn(1f, webView.width - 1f)
+        val py = (y * scaleY).coerceIn(1f, webView.height - 1f)
+        try {
+            magnifier.show(px, py)
+        } catch (error: IllegalArgumentException) {
+            android.util.Log.d("SelDiag", "magnifier $error")
+        }
+    }
+
+    private fun hideSelectionMagnifier() {
+        selectionMagnifier?.dismiss()
+        selectionMagnifier = null
+        selectionMagnifierHost = null
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    private fun magnifierFor(webView: WebView): Magnifier {
+        val existing = selectionMagnifier
+        if (existing != null && selectionMagnifierHost === webView) return existing
+        existing?.dismiss()
+        val created =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                magnifierOnQ(webView)
+            } else {
+                Magnifier(webView)
+            }
+        selectionMagnifier = created
+        selectionMagnifierHost = webView
+        return created
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun magnifierOnQ(webView: WebView): Magnifier {
+        // The platform default radius is a couple of dp, so the loupe looks square.
+        // A large radius is clamped to half the height, which is the system text loupe.
+        val radius = webView.resources.displayMetrics.density * 48f
+        return Magnifier.Builder(webView).setCornerRadius(radius).build()
     }
 
     // Book mode draws its own highlight. The DOM selection Readium reads can

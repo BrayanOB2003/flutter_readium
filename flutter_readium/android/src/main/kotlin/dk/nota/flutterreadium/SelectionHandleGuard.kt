@@ -27,6 +27,8 @@ private val main = Handler(Looper.getMainLooper())
 class SelectionHandleGuard(
     private val onShowMenu: (Rect) -> Unit = {},
     private val onDismissMenu: () -> Unit = {},
+    private val onMagnifierMove: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
+    private val onMagnifierHide: () -> Unit = {},
 ) {
     @JavascriptInterface
     fun settled() {
@@ -62,6 +64,35 @@ class SelectionHandleGuard(
     @JavascriptInterface
     fun dismissMenu() {
         main.post { onDismissMenu() }
+    }
+
+    @Volatile private var magnifierX = 0f
+    @Volatile private var magnifierY = 0f
+    @Volatile private var magnifierWidth = 1f
+    @Volatile private var magnifierHeight = 1f
+    @Volatile private var magnifierVisible = false
+    @Volatile private var magnifierPosted = false
+
+    @JavascriptInterface
+    fun moveMagnifier(x: Double, y: Double, viewportWidth: Double, viewportHeight: Double) {
+        magnifierVisible = true
+        magnifierX = x.toFloat()
+        magnifierY = y.toFloat()
+        magnifierWidth = viewportWidth.toFloat().coerceAtLeast(1f)
+        magnifierHeight = viewportHeight.toFloat().coerceAtLeast(1f)
+        if (magnifierPosted) return
+        magnifierPosted = true
+        main.post {
+            magnifierPosted = false
+            if (!magnifierVisible) return@post
+            onMagnifierMove(magnifierX, magnifierY, magnifierWidth, magnifierHeight)
+        }
+    }
+
+    @JavascriptInterface
+    fun hideMagnifier() {
+        magnifierVisible = false
+        main.post { onMagnifierHide() }
     }
 
     companion object {

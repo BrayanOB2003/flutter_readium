@@ -459,6 +459,7 @@ internal const val SELECTION_GESTURES_JS =
           event.stopPropagation();
           var touch = event.changedTouches[0];
           queueEndpoint(which, touch.clientX, touch.clientY);
+          trackMagnifier(touch.clientX, touch.clientY);
         }, { passive: false });
         function endDrag() {
           if (!drag || drag.which !== which) return;
@@ -466,6 +467,7 @@ internal const val SELECTION_GESTURES_JS =
           settleDrag();
           drag = null;
           handlesReceiveTouches(true);
+          hideMagnifier();
           commitNative();
           restoreColumn('commit');
           paint();
@@ -755,6 +757,15 @@ internal const val SELECTION_GESTURES_JS =
         if (window.FlutterPageSelection && FlutterPageSelection.dismissMenu) FlutterPageSelection.dismissMenu();
       }
 
+      function trackMagnifier(x, y) {
+        if (!window.FlutterPageSelection || !FlutterPageSelection.moveMagnifier) return;
+        FlutterPageSelection.moveMagnifier(x, y, window.innerWidth || 1, window.innerHeight || 1);
+      }
+
+      function hideMagnifier() {
+        if (window.FlutterPageSelection && FlutterPageSelection.hideMagnifier) FlutterPageSelection.hideMagnifier();
+      }
+
       function clearCustom() {
         cachedChars = null;
         customRange = null;
@@ -765,6 +776,7 @@ internal const val SELECTION_GESTURES_JS =
           moveFrame = 0;
         }
         dismissMenu();
+        hideMagnifier();
         handlesReceiveTouches(true);
         paint();
         var sel = window.getSelection();
@@ -816,12 +828,14 @@ internal const val SELECTION_GESTURES_JS =
         if (!customRange) {
           drag = null;
           handlesReceiveTouches(true);
+          hideMagnifier();
           return;
         }
         flushMove();
         if (moved) settleDrag();
         drag = null;
         handlesReceiveTouches(true);
+        hideMagnifier();
         commitNative();
         restoreColumn('commit');
         paint();
@@ -878,7 +892,9 @@ internal const val SELECTION_GESTURES_JS =
         }
         if (!drag) return;
         event.preventDefault();
-        queueEndpoint(drag.which, touch.clientX, touch.clientY);
+        var touchPoint = event.touches[0];
+        trackMagnifier(touchPoint.clientX, touchPoint.clientY);
+        queueEndpoint(drag.which, touchPoint.clientX, touchPoint.clientY);
       }, { capture: true, passive: false });
       document.addEventListener('touchend', function () {
         if (!press) return;

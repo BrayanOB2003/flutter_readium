@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **Wide tables in book mode stay on their page.** A table wider than the page stacks so it no longer spills onto the next page, or stays a clipped grid when cells are merged. A button on that table calls [`onTableOpen`](../docs/api-reference/reader-widget.md) with the original grid plus the reader font size and colors. Scroll mode is unchanged.
+- **A magnifier follows the finger while selecting text on Android.** Book mode draws its own selection, so the system loupe never opened. Android's magnifier now shows the text under the finger until the drag ends, with the same rounded corners as the system loupe. It needs Android 9. Scroll mode already has the system one.
 
 ### Fixed
 
