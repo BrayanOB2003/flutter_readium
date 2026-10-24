@@ -57,6 +57,8 @@ class FlutterReadiumPlugin :
         publicationMethodCallHandler = PublicationMethodCallHandler()
         publicationChannel = MethodChannel(binaryMessenger, publicationChannelName)
         publicationChannel.setMethodCallHandler(publicationMethodCallHandler)
+
+        ReadiumReader.ensureEventChannels(binaryMessenger)
     }
 
     override fun onMethodCall(
@@ -69,7 +71,7 @@ class FlutterReadiumPlugin :
 
     override fun onDetachedFromEngine(binding: FlutterPluginBinding) {
         PluginLog.i(TAG, "onDetachedFromEngine")
-        ReadiumReader.detach()
+        ReadiumReader.detachEngine()
         publicationChannel.setMethodCallHandler(null)
     }
 

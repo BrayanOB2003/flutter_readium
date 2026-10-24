@@ -128,6 +128,45 @@ void main() {
       expect(updated.href, '/ch.xhtml');
       expect(updated.title, 'Updated');
     });
+
+    test('toTextLocator drops non-id fragments without a type cast', () {
+      final locator = Locator(
+        href: '/OEBPS/chapter1.xhtml#frag',
+        type: 'application/xhtml+xml',
+        locations: Locations(
+          progression: 0.42,
+          cssSelector: 'p:nth-child(2)',
+          fragments: const ['t=1.5'],
+        ),
+      );
+
+      final textLocator = locator.toTextLocator();
+
+      expect(textLocator.href, '/OEBPS/chapter1.xhtml');
+      expect(textLocator.type, 'text/html');
+      expect(textLocator.locations?.fragments, isEmpty);
+      expect(textLocator.locations?.progression, closeTo(0.42, 1e-6));
+      expect(textLocator.locations?.cssSelector, 'p:nth-child(2)');
+    });
+
+    test('toTextLocator keeps a leading-hash id fragment', () {
+      final locator = Locator(
+        href: '/OEBPS/chapter1.xhtml',
+        type: 'application/xhtml+xml',
+        locations: Locations(cssSelector: '#p42', fragments: const ['old']),
+      );
+
+      expect(locator.toTextLocator().locations?.fragments, ['p42']);
+    });
+
+    test('Locations.copyWith accepts an untyped fragments list', () {
+      final updated = const Locations(progression: 0.2).copyWith(
+        fragments: <dynamic>['a', 'b'],
+      );
+
+      expect(updated.fragments, ['a', 'b']);
+      expect(updated.progression, closeTo(0.2, 1e-6));
+    });
   });
 
   group('Publication URI templates', () {

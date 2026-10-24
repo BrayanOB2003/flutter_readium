@@ -189,7 +189,7 @@ class Locator extends AdditionalProperties with Equatable implements JSONable {
     Object? additionalProperties = unset,
   }) => copyWith(
     locations: (locations ?? Locations()).copyWith(
-      fragments: identical(fragments, unset) ? (locations?.fragments ?? const <String>[]) : (fragments as List<String>),
+      fragments: identical(fragments, unset) ? (locations?.fragments ?? const <String>[]) : _asStringList(fragments),
       progression: identical(progression, unset) ? locations?.progression : (progression as double?),
       position: identical(position, unset) ? locations?.position : (position as int?),
       totalProgression: identical(totalProgression, unset)
@@ -234,10 +234,22 @@ class Locator extends AdditionalProperties with Equatable implements JSONable {
       href: hrefPath,
       type: MediaType.html.toString(),
       locations: locations?.copyWith(
-        fragments: idFragment == null ? [] : [idFragment],
+        // `fragments` is Object (unset sentinel), so an untyped `[]` is
+        // List<dynamic> and the cast in Locations.copyWith throws.
+        fragments: idFragment == null ? const <String>[] : <String>[idFragment],
       ),
     );
   }
+}
+
+/// `fragments` is declared as [Object] so [unset] can be the default.
+/// An untyped list literal is therefore `List<dynamic>` at runtime, and
+/// `as List<String>` throws. Accept that list when every element is a string.
+List<String> _asStringList(Object value) {
+  if (value is List<String>) {
+    return value;
+  }
+  return List<String>.from(value as List);
 }
 
 /// One or more alternative expressions of the location.
@@ -338,7 +350,7 @@ class Locations extends AdditionalProperties with Equatable implements JSONable 
       progression: identical(progression, unset) ? this.progression : (progression as double?),
       position: identical(position, unset) ? this.position : (position as int?),
       totalProgression: identical(totalProgression, unset) ? this.totalProgression : (totalProgression as double?),
-      fragments: identical(fragments, unset) ? this.fragments : (fragments as List<String>),
+      fragments: identical(fragments, unset) ? this.fragments : _asStringList(fragments),
       cssSelector: identical(cssSelector, unset) ? this.cssSelector : (cssSelector as String?),
       domRange: identical(domRange, unset) ? this.domRange : (domRange as DomRange?),
       partialCfi: identical(partialCfi, unset) ? this.partialCfi : (partialCfi as String?),

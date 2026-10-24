@@ -288,23 +288,7 @@ object ReadiumReader :
         unwrapToApplication(activity)?.let { appRef = WeakReference(it) }
         activityRef = WeakReference(activity)
 
-        timedBasedStateEventChannel?.dispose()
-        timedBasedStateEventChannel = TimedBasedStateEventChannel(messenger)
-
-        externalPlaybackCommandEventChannel?.dispose()
-        externalPlaybackCommandEventChannel = ReadiumExternalPlaybackCommandEventChannel(messenger)
-
-        textLocatorEventChannel?.dispose()
-        textLocatorEventChannel = TextLocatorEventChannel(messenger)
-
-        readiumReaderStatusEventChannel?.dispose()
-        readiumReaderStatusEventChannel = ReadiumReaderStatusEventChannel(messenger)
-
-        errorChannel?.dispose()
-        errorChannel = ReadiumErrorEventChannel(messenger)
-
-        narrationSyncEventChannel?.dispose()
-        narrationSyncEventChannel = NarrationSyncEventChannel(messenger)
+        ensureEventChannels(messenger)
 
         // store weak ref only
         (activity as? SavedStateRegistryOwner)?.savedStateRegistry?.let {
@@ -464,10 +448,10 @@ object ReadiumReader :
     }
 
     fun detach() {
-        // `detach()` runs twice on shutdown: once from `onDetachedFromActivity` and once
-        // from `onDetachedFromEngine`. The first call clears `appRef`, so the second one
-        // crashes the app in `closePublication() -> ResourceFileCache.purgeAll()`, which
-        // reads `application` and throws IllegalStateException. Nothing is left to release
+        // `detach()` runs from `onDetachedFromActivity`, and `detachEngine()` calls it
+        // again on shutdown. The first call clears `appRef`, so the second one crashes
+        // in `closePublication() -> ResourceFileCache.purgeAll()`, which reads
+        // `application` and throws IllegalStateException. Nothing is left to release
         // at that point, so return early.
         if (appRef?.get() == null && activityRef?.get() == null) {
             PluginLog.d(TAG, "::detach - already detached, nothing to do")
@@ -491,6 +475,35 @@ object ReadiumReader :
         readerViewRef?.clear()
         readerViewRef = null
 
+        coroutineContext.cancelChildren()
+    }
+
+    /**
+     * Register the event channels for the life of the Flutter engine.
+     *
+     * [detach] runs when the activity goes away. Disposing the channels there
+     * makes the next Dart `listen` fail with no native handler.
+     */
+    fun ensureEventChannels(messenger: BinaryMessenger) {
+        if (textLocatorEventChannel != null) {
+            return
+        }
+
+        timedBasedStateEventChannel = TimedBasedStateEventChannel(messenger)
+        externalPlaybackCommandEventChannel = ReadiumExternalPlaybackCommandEventChannel(messenger)
+        textLocatorEventChannel = TextLocatorEventChannel(messenger)
+        readiumReaderStatusEventChannel = ReadiumReaderStatusEventChannel(messenger)
+        errorChannel = ReadiumErrorEventChannel(messenger)
+        narrationSyncEventChannel = NarrationSyncEventChannel(messenger)
+    }
+
+    /** Activity cleanup plus the event channels. Call when the engine detaches. */
+    fun detachEngine() {
+        detach()
+        disposeEventChannels()
+    }
+
+    private fun disposeEventChannels() {
         timedBasedStateEventChannel?.dispose()
         timedBasedStateEventChannel = null
 
@@ -508,8 +521,6 @@ object ReadiumReader :
 
         narrationSyncEventChannel?.dispose()
         narrationSyncEventChannel = null
-
-        coroutineContext.cancelChildren()
     }
 
     // Safe getter — returns applicationContext or throws if not available.

@@ -1,6 +1,11 @@
 package dk.nota.flutterreadium.navigators
 
 import android.os.Bundle
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
+import androidx.fragment.app.commitNow
+import dk.nota.flutterreadium.PluginLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,4 +72,26 @@ abstract class BaseNavigator(
      * store the current state of the navigator
      */
     abstract fun storeState(): Bundle
+
+    /**
+     * Add [fragment] synchronously. A plain commit throws after
+     * [FragmentManager.isStateSaved]; the platform view can be created in that
+     * window, so record the loss instead of crashing.
+     */
+    protected fun FragmentManager.addNavigatorNow(
+        viewGroup: ViewGroup,
+        fragment: Fragment,
+        tag: String,
+    ) {
+        if (isDestroyed) {
+            PluginLog.w(TAG, "FragmentManager destroyed; skipping attach of $tag")
+            return
+        }
+        if (isStateSaved) {
+            PluginLog.w(TAG, "FragmentManager state already saved; attaching $tag without recording the transaction")
+        }
+        commitNow(allowStateLoss = isStateSaved) {
+            add(viewGroup, fragment, tag)
+        }
+    }
 }

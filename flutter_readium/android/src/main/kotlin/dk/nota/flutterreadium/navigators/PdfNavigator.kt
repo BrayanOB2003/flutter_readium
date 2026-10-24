@@ -95,9 +95,7 @@ class PdfNavigator :
     ) {
         val navigator = pdfNavigator ?: return
         launch {
-            fragmentManager.commitNow {
-                add(viewGroup, navigator, NAVIGATOR_FRAGMENT_TAG)
-            }
+            fragmentManager.addNavigatorNow(viewGroup, navigator, NAVIGATOR_FRAGMENT_TAG)
         }
     }
 

@@ -116,9 +116,7 @@ class ComicNavigator :
             // Add by ViewGroup reference, not container id: the plugin's platform-view
             // container has no id resolvable by this FragmentManager, so the id-based add()
             // form fails with "No view found for id". Matches PdfNavigator.attachNavigator.
-            fragmentManager.commitNow {
-                add(viewGroup, navigator, NAVIGATOR_FRAGMENT_TAG)
-            }
+            fragmentManager.addNavigatorNow(viewGroup, navigator, NAVIGATOR_FRAGMENT_TAG)
             // ImageNavigatorFragment's root (a KeyInterceptorView) is added with default
             // wrap_content layout params, which collapses its match_parent descendants
             // (R2ViewPager / PhotoView) to 0x0 and renders nothing. Force the root to fill
