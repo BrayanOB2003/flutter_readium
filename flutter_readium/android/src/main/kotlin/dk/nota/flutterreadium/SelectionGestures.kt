@@ -19,11 +19,13 @@ package dk.nota.flutterreadium
  * Book mode does not use Chromium's handle drag. That drag maps points in the
  * upper part of a column to the previous page and then scrolls to reveal them,
  * which fights Readium's scroll block. The handles and the highlight are drawn
- * here, and a hit is kept only when it lands on the line under the finger.
- * A drag keeps the latest point and paints it once per frame.
- * The DOM selection is installed when the finger lifts, so the system menu can
- * copy, share, and save the quote. Chromium's own handles are hidden by
- * `SelectionHandleGuard`.
+ * here. While the finger is down the highlight follows that point. Word and
+ * punctuation stops are applied when the finger lifts. A drag keeps the latest
+ * point and paints it once per frame.
+ * The DOM selection stays empty while the handles are on screen. Chromium's
+ * own handles move one character at a time, and they appear as soon as a DOM
+ * selection exists. Copy, share, and save install this range only for the
+ * read, then drop it. `SelectionHandleGuard` hides any handle that still appears.
  *
  * Keep the book-mode part in step with `SelectionPageLock.swift`, except for
  * the delay, which WebKit does not need.
@@ -200,23 +202,208 @@ internal const val SELECTION_GESTURES_JS =
         return range;
       }
 
+      // iOS moves a handle by a whole word or one punctuation mark. A letter
+      // run, including an apostrophe inside it, is one stop. Each punctuation
+      // mark is its own stop. Spaces are not.
+      function isAlnum(ch) {
+        if (!ch) return false;
+        try {
+          return /[\p{L}\p{N}]/u.test(ch);
+        } catch (error) {
+          return /[0-9A-Za-z\u00C0-\u024F]/.test(ch);
+        }
+      }
+
+      function isPunct(ch) {
+        if (!ch) return false;
+        try {
+          return /[\p{P}\p{S}]/u.test(ch);
+        } catch (error) {
+          return /[.,;:!?¿¡"'“”‘’«»()\[\]{}…—–\-]/.test(ch);
+        }
+      }
+
+      function blockRoot(node) {
+        var el = node && (node.nodeType === 1 ? node : node.parentElement);
+        while (el && el !== document.documentElement) {
+          if (/^(P|LI|DD|BLOCKQUOTE|PRE|H[1-6]|TD|TH|FIGCAPTION|DIV)$/.test(el.tagName)) return el;
+          el = el.parentElement;
+        }
+        return document.body || document.documentElement;
+      }
+
+      function textNodesIn(node) {
+        var root = blockRoot(node);
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        var nodes = [];
+        var current;
+        while ((current = walker.nextNode())) nodes.push(current);
+        return nodes;
+      }
+
+      var cachedChars = null;
+      function charsIn(node) {
+        var root = blockRoot(node);
+        if (cachedChars && cachedChars.root === root) return cachedChars.chars;
+        var nodes = textNodesIn(node);
+        var chars = [];
+        for (var n = 0; n < nodes.length; n++) {
+          var text = nodes[n].textContent || '';
+          for (var i = 0; i < text.length; i++) {
+            chars.push({ node: nodes[n], index: i, ch: text.charAt(i) });
+          }
+        }
+        cachedChars = { root: root, chars: chars };
+        return chars;
+      }
+
+      function kindOfChar(chars, i) {
+        var ch = chars[i].ch;
+        if (ch === '\u00ad' || ch === '\u200b') return 'skip';
+        if (/\s/.test(ch) || ch === '\u00a0') return 'space';
+        var prev = i > 0 ? chars[i - 1].ch : '';
+        var next = i + 1 < chars.length ? chars[i + 1].ch : '';
+        if ((ch === "'" || ch === '\u2019') && isAlnum(prev) && isAlnum(next)) return 'word';
+        if (isAlnum(ch)) return 'word';
+        if (isPunct(ch)) return 'punct';
+        return 'word';
+      }
+
+      function tokenBounds(chars, i) {
+        var kind = kindOfChar(chars, i);
+        if (kind === 'space' || kind === 'none' || kind === 'skip') return null;
+        if (kind === 'punct') {
+          return {
+            node: chars[i].node,
+            offset: chars[i].index,
+            endNode: chars[i].node,
+            end: chars[i].index + 1,
+          };
+        }
+        var start = i;
+        var end = i;
+        while (start > 0) {
+          var before = kindOfChar(chars, start - 1);
+          if (before !== kind && before !== 'skip') break;
+          start--;
+        }
+        while (end + 1 < chars.length) {
+          var after = kindOfChar(chars, end + 1);
+          if (after !== kind && after !== 'skip') break;
+          end++;
+        }
+        return {
+          node: chars[start].node,
+          offset: chars[start].index,
+          endNode: chars[end].node,
+          end: chars[end].index + 1,
+        };
+      }
+
+      // offset is a caret. dir 1 is the character after it, dir -1 the one before.
+      function indexOfCaret(chars, node, offset, dir) {
+        var i;
+        if (dir > 0) {
+          for (i = 0; i < chars.length; i++) {
+            if (chars[i].node === node && chars[i].index === offset) return i;
+          }
+          var passed = false;
+          for (i = 0; i < chars.length; i++) {
+            if (chars[i].node === node) passed = true;
+            else if (passed) return i;
+          }
+          return -1;
+        }
+        for (i = chars.length - 1; i >= 0; i--) {
+          if (chars[i].node === node && chars[i].index === offset - 1) return i;
+        }
+        var seen = false;
+        for (i = chars.length - 1; i >= 0; i--) {
+          if (chars[i].node === node) seen = true;
+          else if (seen) return i;
+        }
+        return -1;
+      }
+
+      // A comma is one character wide. Snapping to the far side of whatever
+      // token the caret fell in made the gap after it swallow the next word,
+      // so the comma only showed up when the handle was dragged all the way back.
+      function endOfToken(chars, index) {
+        var token = tokenBounds(chars, index);
+        if (!token) return null;
+        return { node: token.endNode, offset: token.end };
+      }
+
+      function endBefore(chars, index) {
+        var prev = index;
+        while (prev >= 0 && (kindOfChar(chars, prev) === 'space' || kindOfChar(chars, prev) === 'skip')) prev--;
+        if (prev < 0) return null;
+        return endOfToken(chars, prev);
+      }
+
+      function boundaryForCaret(node, offset) {
+        if (!node || node.nodeType !== 3) return null;
+        var chars = charsIn(node);
+        var after = indexOfCaret(chars, node, offset, 1);
+        var before = indexOfCaret(chars, node, offset, -1);
+        if (after < 0) return endBefore(chars, before);
+        var kind = kindOfChar(chars, after);
+        if (kind === 'space' || kind === 'skip') return endBefore(chars, after - 1);
+        if (kind === 'punct') return endOfToken(chars, after);
+        var start = after;
+        while (start > 0) {
+          var back = kindOfChar(chars, start - 1);
+          if (back !== kind && back !== 'skip') break;
+          start--;
+        }
+        var end = after;
+        while (end + 1 < chars.length) {
+          var ahead = kindOfChar(chars, end + 1);
+          if (ahead !== kind && ahead !== 'skip') break;
+          end++;
+        }
+        var visible = 0;
+        var depth = 0;
+        for (var i = start; i <= end; i++) {
+          if (kindOfChar(chars, i) === 'skip') continue;
+          if (i < after) depth++;
+          visible++;
+        }
+        if (depth >= 1) return endOfToken(chars, after);
+        var earlier = endBefore(chars, start - 1);
+        if (earlier) return earlier;
+        var token = tokenBounds(chars, start);
+        if (!token) return null;
+        return { node: token.node, offset: token.offset };
+      }
+
+      function snapBoundary(node, offset) {
+        if (!node || node.nodeType !== 3) return { node: node, offset: offset };
+        return boundaryForCaret(node, offset) || { node: node, offset: offset };
+      }
+
       function wordRange(hit) {
         var node = hit.startContainer;
+        if (!node || node.nodeType !== 3) return null;
+        var chars = charsIn(node);
+        var after = indexOfCaret(chars, node, hit.startOffset, 1);
+        var before = indexOfCaret(chars, node, hit.startOffset, -1);
+        var pick = -1;
+        if (after >= 0 && kindOfChar(chars, after) === 'word') pick = after;
+        else if (before >= 0 && kindOfChar(chars, before) === 'word') pick = before;
+        else if (after >= 0 && kindOfChar(chars, after) === 'punct') pick = after;
+        else if (before >= 0 && kindOfChar(chars, before) === 'punct') pick = before;
+        if (pick < 0) return null;
+        var token = tokenBounds(chars, pick);
+        if (!token) return null;
         var range = document.createRange();
-        if (!node || node.nodeType !== 3) {
-          range.setStart(hit.startContainer, hit.startOffset);
-          range.setEnd(hit.startContainer, hit.startOffset);
-          return range;
+        try {
+          range.setStart(token.node, token.offset);
+          range.setEnd(token.endNode, token.end);
+        } catch (error) {
+          return null;
         }
-        var text = node.textContent || '';
-        var start = hit.startOffset;
-        var end = start;
-        while (start > 0 && /\S/.test(text.charAt(start - 1))) start--;
-        while (end < text.length && /\S/.test(text.charAt(end))) end++;
-        if (start === end) return null;
-        range.setStart(node, start);
-        range.setEnd(node, end);
-        return range;
+        return range.collapsed ? null : range;
       }
 
       function visibleRects(range) {
@@ -233,32 +420,32 @@ internal const val SELECTION_GESTURES_JS =
         return kept;
       }
 
+      // Android's handle: a short stem and a circle under the line, as in scroll mode.
       function makeHandle(which) {
         var el = document.createElement('div');
         el.setAttribute('data-fr-selection', '1');
         el.setAttribute('data-fr-handle', which);
-        el.style.cssText = 'position:fixed;z-index:2;left:0;top:0;width:44px;height:52px;margin-left:-22px;display:none;pointer-events:auto;touch-action:none;will-change:transform;';
+        el.style.cssText = 'position:fixed;z-index:2;left:0;top:0;width:48px;height:40px;margin-left:-24px;display:none;pointer-events:auto;touch-action:none;will-change:transform;';
         var stem = document.createElement('div');
-        stem.style.cssText = 'width:2px;height:16px;margin:0 auto;background-color:#1a73e8 !important;';
+        stem.style.cssText = 'width:2px;height:8px;margin:0 auto;background-color:#1a73e8 !important;';
         var knob = document.createElement('div');
-        knob.style.cssText = 'width:22px;height:22px;margin:0 auto;border-radius:11px;background-color:#1a73e8 !important;box-shadow:0 1px 3px rgba(0,0,0,0.35);';
+        knob.style.cssText = 'width:22px;height:22px;margin:-1px auto 0;border-radius:11px;background-color:#1a73e8 !important;';
         el.appendChild(stem);
         el.appendChild(knob);
         el.addEventListener('touchstart', function (event) {
           if (!customRange || !event.changedTouches.length) return;
           event.preventDefault();
           event.stopPropagation();
-          var touch = event.changedTouches[0];
-          var box = el.getBoundingClientRect();
+          cachedChars = null;
           var anchorNode = which === 'end' ? customRange.startContainer : customRange.endContainer;
           var anchorOffset = which === 'end' ? customRange.startOffset : customRange.endOffset;
           drag = {
             which: which,
-            dx: touch.clientX - (box.left + box.width / 2),
-            dy: touch.clientY - box.top,
             anchorNode: anchorNode,
             anchorOffset: anchorOffset,
           };
+          handlesReceiveTouches(false);
+          hideHandles();
           gestureAdjustsSelection = true;
           dismissMenu();
           var sel = window.getSelection();
@@ -271,12 +458,14 @@ internal const val SELECTION_GESTURES_JS =
           event.preventDefault();
           event.stopPropagation();
           var touch = event.changedTouches[0];
-          queueEndpoint(which, touch.clientX - drag.dx, touch.clientY - drag.dy);
+          queueEndpoint(which, touch.clientX, touch.clientY);
         }, { passive: false });
         function endDrag() {
           if (!drag || drag.which !== which) return;
           flushMove();
+          settleDrag();
           drag = null;
+          handlesReceiveTouches(true);
           commitNative();
           restoreColumn('commit');
           paint();
@@ -326,27 +515,9 @@ internal const val SELECTION_GESTURES_JS =
         var vh = window.innerHeight;
         if (rect.right < 0 || rect.left > vw || rect.bottom < 0 || rect.top > vh) return null;
         var mid = (rect.top + rect.bottom) / 2;
-        if (Math.abs(y - mid) > Math.max(rect.height * 1.25, 22)) return null;
+        if (Math.abs(y - mid) > Math.max(rect.height * 2.5, 48)) return null;
         if (x < rect.left - 64 || x > rect.right + 64) return null;
         return { range: range, rect: rect };
-      }
-
-      function caretNear(x, y) {
-        var hit = caretHit(x, y);
-        if (hit && y >= hit.rect.top && y <= hit.rect.bottom) return hit;
-        if (hit) {
-          var mid = (hit.rect.top + hit.rect.bottom) / 2;
-          var nudge = y < mid ? y - hit.rect.height * 0.75 : y + hit.rect.height * 0.75;
-          var other = caretHit(x, nudge);
-          if (other) {
-            var otherMid = (other.rect.top + other.rect.bottom) / 2;
-            if (Math.abs(otherMid - y) < Math.abs(mid - y)) return other;
-          }
-          return hit;
-        }
-        var clampedX = Math.max(16, Math.min(window.innerWidth - 16, x));
-        if (clampedX !== x) return caretHit(clampedX, y);
-        return null;
       }
 
       function rangeBetween(anchorNode, anchorOffset, focusNode, focusOffset) {
@@ -367,28 +538,13 @@ internal const val SELECTION_GESTURES_JS =
         return next.collapsed ? null : next;
       }
 
-      function pageRects(range) {
-        var all = range.getClientRects();
-        var vw = window.innerWidth;
-        var vh = window.innerHeight;
-        var kept = [];
-        for (var i = 0; i < all.length; i++) {
-          var rect = all[i];
-          if (rect.width < 1 || rect.height < 1) continue;
-          if (rect.left < -12 || rect.right > vw + 12 || rect.top < -12 || rect.bottom > vh + 12) return null;
-          if (rect.right <= 0 || rect.left >= vw || rect.bottom <= 0 || rect.top >= vh) continue;
-          kept.push(rect);
-        }
-        return kept.length ? kept : null;
-      }
-
       function placeHandle(el, rect, which) {
         if (!rect) {
           el.style.display = 'none';
           return;
         }
         if (el.style.display !== 'block') el.style.display = 'block';
-        var point = toLayer(which === 'end' ? rect.right : rect.left, rect.top);
+        var point = toLayer(which === 'end' ? rect.right : rect.left, rect.bottom);
         el.style.transform = 'translate3d(' + point.x + 'px,' + point.y + 'px,0)';
       }
 
@@ -426,8 +582,11 @@ internal const val SELECTION_GESTURES_JS =
             boxes.push(box);
           }
         }
-        placeHandle(handles.start, rects[0], 'start');
-        placeHandle(handles.end, rects[rects.length - 1], 'end');
+        if (drag || press) hideHandles();
+        else {
+          placeHandle(handles.start, rects[0], 'start');
+          placeHandle(handles.end, rects[rects.length - 1], 'end');
+        }
       }
 
       function sameRange(left, right) {
@@ -445,23 +604,54 @@ internal const val SELECTION_GESTURES_JS =
         console.log('SelDiag custom reject ' + which + ' x=' + Math.round(x) + ' y=' + Math.round(y));
       }
 
+      function hideHandles() {
+        if (handles.start) handles.start.style.display = 'none';
+        if (handles.end) handles.end.style.display = 'none';
+      }
+
+      function handlesReceiveTouches(receive) {
+        var value = receive ? 'auto' : 'none';
+        if (handles.start) handles.start.style.pointerEvents = value;
+        if (handles.end) handles.end.style.pointerEvents = value;
+      }
+
+      // Follows the finger. Word and punctuation stops wait until the finger lifts.
       function moveEndpoint(which, x, y) {
-        var hit = caretNear(x, y);
+        var hit = caretHit(x, y);
         if (!hit || !drag) {
           logReject(which, x, y);
           return;
         }
         var next = null;
         try {
-          next = rangeBetween(drag.anchorNode, drag.anchorOffset, hit.range.startContainer, hit.range.startOffset);
+          next = rangeBetween(
+            drag.anchorNode,
+            drag.anchorOffset,
+            hit.range.startContainer,
+            hit.range.startOffset,
+          );
         } catch (error) {
           return;
         }
         if (!next || sameRange(customRange, next)) return;
-        var rects = pageRects(next);
-        if (!rects) return;
         customRange = next;
-        paint(rects);
+        if (!paintHighlight(customRange)) paint(visibleRects(customRange));
+      }
+
+      function settleDrag() {
+        if (!drag || !customRange) return;
+        cachedChars = null;
+        var node = drag.which === 'end' ? customRange.endContainer : customRange.startContainer;
+        var offset = drag.which === 'end' ? customRange.endOffset : customRange.startOffset;
+        var focus = snapBoundary(node, offset);
+        var next = null;
+        try {
+          next = rangeBetween(drag.anchorNode, drag.anchorOffset, focus.node, focus.offset);
+        } catch (error) {
+          next = null;
+        }
+        if (next) customRange = next;
+        paint();
       }
 
       function queueEndpoint(which, x, y) {
@@ -484,10 +674,17 @@ internal const val SELECTION_GESTURES_JS =
         moveEndpoint(move.which, move.x, move.y);
       }
 
-      function commitNative() {
-        if (!customRange) return;
+      function nativeSelectionMissing() {
         var sel = window.getSelection();
-        if (!sel) return;
+        return !sel || sel.rangeCount === 0 || sel.isCollapsed || !sel.toString().trim();
+      }
+
+      // Readium reads window.getSelection. It is installed for that read only.
+      function installNativeSelection() {
+        if (!customRange || !nativeSelectionMissing()) return true;
+        var sel = window.getSelection();
+        if (!sel) return false;
+        holdNativeSelection = true;
         try {
           sel.setBaseAndExtent(
             customRange.startContainer,
@@ -496,10 +693,36 @@ internal const val SELECTION_GESTURES_JS =
             customRange.endOffset,
           );
         } catch (error) {
+          holdNativeSelection = false;
           console.log('SelDiag custom commit failed');
-          return;
+          return false;
         }
         if (!locked) locked = page || position();
+        var placed = !nativeSelectionMissing();
+        if (!placed) holdNativeSelection = false;
+        return placed;
+      }
+
+      window.__flutterReadiumInstallSelection = function () {
+        if (drag || (press && press.dragging)) return;
+        installNativeSelection();
+      };
+
+      var holdNativeSelection = false;
+
+      function releaseNativeSelection() {
+        if (drag || (press && press.dragging)) return;
+        holdNativeSelection = false;
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        sel.removeAllRanges();
+      }
+
+      window.__flutterReadiumReleaseSelection = releaseNativeSelection;
+
+      function commitNative() {
+        if (!customRange) return;
+        releaseNativeSelection();
         console.log('SelDiag custom commit len=' + customRange.toString().length);
         if (window.FlutterPageSelection && FlutterPageSelection.settled) FlutterPageSelection.settled();
         showMenu();
@@ -533,6 +756,7 @@ internal const val SELECTION_GESTURES_JS =
       }
 
       function clearCustom() {
+        cachedChars = null;
         customRange = null;
         drag = null;
         pendingMove = null;
@@ -541,6 +765,7 @@ internal const val SELECTION_GESTURES_JS =
           moveFrame = 0;
         }
         dismissMenu();
+        handlesReceiveTouches(true);
         paint();
         var sel = window.getSelection();
         if (sel) sel.removeAllRanges();
@@ -548,6 +773,7 @@ internal const val SELECTION_GESTURES_JS =
       }
 
       function beginSelection(x, y) {
+        cachedChars = null;
         syncBookSelection();
         var hit = caretAt(x, y);
         var range = hit ? wordRange(hit) : null;
@@ -572,11 +798,11 @@ internal const val SELECTION_GESTURES_JS =
         gestureAdjustsSelection = true;
         drag = {
           which: which,
-          dx: 0,
-          dy: 0,
           anchorNode: which === 'end' ? customRange.startContainer : customRange.endContainer,
           anchorOffset: which === 'end' ? customRange.startOffset : customRange.endOffset,
         };
+        handlesReceiveTouches(false);
+        hideHandles();
         holdSelecting();
         dismissMenu();
         var sel = window.getSelection();
@@ -587,9 +813,15 @@ internal const val SELECTION_GESTURES_JS =
         if (!press || !press.active) return;
         var moved = press.dragging;
         press = null;
-        if (!customRange) return;
+        if (!customRange) {
+          drag = null;
+          handlesReceiveTouches(true);
+          return;
+        }
         flushMove();
-        if (moved) drag = null;
+        if (moved) settleDrag();
+        drag = null;
+        handlesReceiveTouches(true);
         commitNative();
         restoreColumn('commit');
         paint();

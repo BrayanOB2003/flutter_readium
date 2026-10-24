@@ -810,12 +810,21 @@ class EpubReaderFragment :
         selectionMenuMode = null
     }
 
+    // Book mode draws its own highlight. The DOM selection Readium reads can
+    // be cleared after a long-press, until a handle moves.
+    private suspend fun restoreBookSelection() {
+        evaluateJavascript(
+            "window.__flutterReadiumInstallSelection && window.__flutterReadiumInstallSelection()",
+        )
+    }
+
     private fun useSelectionText(
         mode: ActionMode,
         share: Boolean,
     ) {
         lifecycleScope.launch {
             try {
+                restoreBookSelection()
                 val text =
                     (navigator as? SelectableNavigator)
                         ?.currentSelection()
@@ -836,6 +845,9 @@ class EpubReaderFragment :
                     clipboard?.setPrimaryClip(ClipData.newPlainText("selection", text))
                 }
             } finally {
+                evaluateJavascript(
+                    "window.__flutterReadiumReleaseSelection && window.__flutterReadiumReleaseSelection()",
+                )
                 mode.finish()
             }
         }
@@ -877,6 +889,7 @@ class EpubReaderFragment :
         PluginLog.d(TAG, "::notifySelectionAction - action: ${action.id}")
         lifecycleScope.launch {
             try {
+                restoreBookSelection()
                 val nav = navigator as? SelectableNavigator
                 android.util.Log.d("SelDiag", "action ${action.id} navigator=${nav != null}")
                 if (nav == null) return@launch
@@ -898,6 +911,9 @@ class EpubReaderFragment :
                     )
                 }
             } finally {
+                evaluateJavascript(
+                    "window.__flutterReadiumReleaseSelection && window.__flutterReadiumReleaseSelection()",
+                )
                 done()
             }
         }
