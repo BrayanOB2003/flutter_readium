@@ -35,6 +35,7 @@ internal object ResourceFileCache {
      * entries don't outlive the publication they were fetched from.
      */
     fun purgeAll() {
+        if (ReadiumReader.applicationOrNull == null) return
         directory.deleteRecursively()
     }
 }

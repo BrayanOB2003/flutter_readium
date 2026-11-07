@@ -58,6 +58,7 @@ class FlutterReadiumPlugin :
         publicationChannel = MethodChannel(binaryMessenger, publicationChannelName)
         publicationChannel.setMethodCallHandler(publicationMethodCallHandler)
 
+        ReadiumReader.bindApplication(flutterPluginBinding.applicationContext)
         ReadiumReader.ensureEventChannels(binaryMessenger)
     }
 
@@ -71,7 +72,7 @@ class FlutterReadiumPlugin :
 
     override fun onDetachedFromEngine(binding: FlutterPluginBinding) {
         PluginLog.i(TAG, "onDetachedFromEngine")
-        ReadiumReader.detachEngine()
+        ReadiumReader.detachEngine(binding.binaryMessenger)
         publicationChannel.setMethodCallHandler(null)
     }
 
@@ -111,14 +112,20 @@ class FlutterReadiumPlugin :
 
     override fun onDetachedFromActivityForConfigChanges() {
         PluginLog.d(TAG, "onDetachedFromActivityForConfigChanges")
+        // The activity reference stays until reattach replaces it. Clearing it
+        // in this gap leaves the reader without a FragmentActivity.
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         PluginLog.d(TAG, "onReattachedToActivityForConfigChanges")
+        ReadiumReader.attach(binding.activity, binaryMessenger)
     }
 
     override fun onDetachedFromActivity() {
         PluginLog.i(TAG, "onDetachedFromActivity")
-        ReadiumReader.detach()
+        // The engine detach that follows releases the publication. Dropping the
+        // application here made the in-flight open fail with
+        // "Call ReadiumReader.attach(...) first" while the UI was still up.
+        ReadiumReader.onActivityGone()
     }
 }

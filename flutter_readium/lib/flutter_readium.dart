@@ -56,6 +56,9 @@ class FlutterReadium {
 
   Future<T> _readiumCall<T>(Future<T> Function() call) => _convertReadiumErrors(call);
 
+  /// Binds the native locator stream to the current engine before a listen.
+  Future<void> ensureEventChannels() => _platform.ensureEventChannels();
+
   /// Sets custom HTTP headers to be used for all network requests made by the reader.
   Future<void> setCustomHeaders(Map<String, String> headers) => _readiumCall(() => _platform.setCustomHeaders(headers));
 

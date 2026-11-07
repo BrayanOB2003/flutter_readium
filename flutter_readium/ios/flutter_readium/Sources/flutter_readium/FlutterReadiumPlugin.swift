@@ -141,6 +141,9 @@ public class FlutterReadiumPlugin: NSObject, FlutterPlugin, ReadiumShared.Warnin
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "ensureEventChannels":
+      // Streams are registered for the life of the plugin in `register(with:)`.
+      result(nil)
     case "setLogLevel":
       if let value = call.arguments as? Int,
          let level = LogLevel(rawValue: value) {

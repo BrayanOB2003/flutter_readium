@@ -59,6 +59,13 @@ abstract class FlutterReadiumPlatform extends PlatformInterface {
     _defaultPreferences = value;
   }
 
+  /// Makes sure the native event channels are registered on this engine.
+  ///
+  /// Android can host a new Flutter engine in the same process. Calling this
+  /// before listening binds the text-locator channel to that engine, so the
+  /// listen is not reported as a missing plugin.
+  Future<void> ensureEventChannels() async {}
+
   /// Sets custom HTTP headers forwarded to the native HTTP layer for all network requests.
   Future<void> setCustomHeaders(Map<String, String> headers) => throw UnimplementedError(
     'setCustomHeaders(headers) has not been implemented.',

@@ -54,6 +54,9 @@ class MockFlutterReadiumPlatform with MockPlatformInterfaceMixin implements Flut
   Stream<bool> get onNarrationSyncChanged => _narrationSyncController.stream;
 
   @override
+  Future<void> ensureEventChannels() async {}
+
+  @override
   Future<void> setNarrationSyncEnabled(bool enabled) async {}
 
   @override

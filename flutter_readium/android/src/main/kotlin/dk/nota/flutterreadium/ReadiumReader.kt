@@ -33,6 +33,7 @@ import io.flutter.plugin.common.BinaryMessenger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,6 +144,9 @@ object ReadiumReader :
 
     private var narrationSyncEventChannel: NarrationSyncEventChannel? = null
 
+    /** Messenger the live event channels were registered on. */
+    private var channelMessenger: BinaryMessenger? = null
+
     /**
      * Runtime narration-sync flag. `true` means the visual reader follows the audio cue
      * automatically; `false` means the user has entered manual mode (visual stays, audio plays).
@@ -159,6 +163,8 @@ object ReadiumReader :
 
     private val currentReadiumTimebasedState =
         MutableStateFlow(ReadiumTimebasedState.none())
+
+    private var timebasedEventsJob: Job? = null
 
     private val currentTextLocator = MutableStateFlow<Locator?>(null)
 
@@ -280,39 +286,54 @@ object ReadiumReader :
             return publicationOpenerCache!!
         }
 
+    /**
+     * Remembers the process [Application] for as long as this engine is alive.
+     *
+     * Opening a book only needs the application context. Waiting for the
+     * activity binding left a window where [application] threw.
+     */
+    fun bindApplication(context: Context) {
+        val app = unwrapToApplication(context) ?: return
+        appRef = WeakReference(app)
+    }
+
     // Initialize from plugin or anywhere you have an Application or Context.
     fun attach(
         activity: Activity,
         messenger: BinaryMessenger,
     ) {
-        unwrapToApplication(activity)?.let { appRef = WeakReference(it) }
+        bindApplication(activity)
         activityRef = WeakReference(activity)
 
         ensureEventChannels(messenger)
 
         // store weak ref only
-        (activity as? SavedStateRegistryOwner)?.savedStateRegistry?.let {
-            savedStateRef = WeakReference(it)
-            it.registerSavedStateProvider(stateKey) {
+        (activity as? SavedStateRegistryOwner)?.savedStateRegistry?.let { registry ->
+            if (savedStateRef?.get() === registry) return@let
+            savedStateRef = WeakReference(registry)
+            registry.registerSavedStateProvider(stateKey) {
                 storeState()
             }
 
-            restoreState(it.consumeRestoredStateForKey(stateKey))
+            restoreState(registry.consumeRestoredStateForKey(stateKey))
         }
 
-        currentReadiumTimebasedState
-            .onEach {
-                PluginLog.d(
-                    TAG,
-                    "currentTimebasedReaderState: ${
-                        jsonEncode(
-                            it.toJSON(),
+        if (timebasedEventsJob?.isActive != true) {
+            timebasedEventsJob =
+                currentReadiumTimebasedState
+                    .onEach {
+                        PluginLog.d(
+                            TAG,
+                            "currentTimebasedReaderState: ${
+                                jsonEncode(
+                                    it.toJSON(),
+                                )
+                            }",
                         )
-                    }",
-                )
 
-                timedBasedStateEventChannel?.sendEvent(it)
-            }.launchIn(this)
+                        timedBasedStateEventChannel?.sendEvent(it)
+                    }.launchIn(this)
+        }
     }
 
     private fun storeState(): Bundle {
@@ -447,24 +468,31 @@ object ReadiumReader :
         }
     }
 
-    fun detach() {
-        // `detach()` runs from `onDetachedFromActivity`, and `detachEngine()` calls it
-        // again on shutdown. The first call clears `appRef`, so the second one crashes
-        // in `closePublication() -> ResourceFileCache.purgeAll()`, which reads
-        // `application` and throws IllegalStateException. Nothing is left to release
-        // at that point, so return early.
-        if (appRef?.get() == null && activityRef?.get() == null) {
-            PluginLog.d(TAG, "::detach - already detached, nothing to do")
+    /** Drops the host activity without tearing down the engine-scoped reader. */
+    fun onActivityGone() {
+        activityRef?.clear()
+        activityRef = null
+    }
+
+    /**
+     * Releases the publication and the event channels for [messenger].
+     *
+     * A newer engine in the same process may already have replaced the
+     * channels. Disposing them here would make that engine's next `listen`
+     * fail with no native handler.
+     */
+    fun detachEngine(messenger: BinaryMessenger) {
+        if (channelMessenger != null && channelMessenger !== messenger) {
+            PluginLog.d(TAG, "::detachEngine - channels belong to a newer engine")
             return
         }
 
-        closePublication()
-
+        onActivityGone()
+        if (appRef?.get() != null) {
+            closePublication()
+        }
         appRef?.clear()
         appRef = null
-
-        activityRef?.clear()
-        activityRef = null
 
         savedStateRef?.clear()
         savedStateRef = null
@@ -476,31 +504,43 @@ object ReadiumReader :
         readerViewRef = null
 
         coroutineContext.cancelChildren()
+        timebasedEventsJob = null
+        disposeEventChannels()
     }
 
     /**
-     * Register the event channels for the life of the Flutter engine.
+     * Register the event channels for [messenger].
      *
-     * [detach] runs when the activity goes away. Disposing the channels there
-     * makes the next Dart `listen` fail with no native handler.
+     * The same process can host a new Flutter engine while this object still
+     * exists. Returning early left the new engine without a handler, so Dart's
+     * `listen` on `text-locator` crashed even though the method channel worked.
      */
     fun ensureEventChannels(messenger: BinaryMessenger) {
-        if (textLocatorEventChannel != null) {
+        if (channelMessenger !== messenger || textLocatorEventChannel == null) {
+            disposeEventChannels()
+            channelMessenger = messenger
+            timedBasedStateEventChannel = TimedBasedStateEventChannel(messenger)
+            externalPlaybackCommandEventChannel =
+                ReadiumExternalPlaybackCommandEventChannel(messenger)
+            textLocatorEventChannel = TextLocatorEventChannel(messenger)
+            readiumReaderStatusEventChannel = ReadiumReaderStatusEventChannel(messenger)
+            errorChannel = ReadiumErrorEventChannel(messenger)
+            narrationSyncEventChannel = NarrationSyncEventChannel(messenger)
             return
         }
 
-        timedBasedStateEventChannel = TimedBasedStateEventChannel(messenger)
-        externalPlaybackCommandEventChannel = ReadiumExternalPlaybackCommandEventChannel(messenger)
-        textLocatorEventChannel = TextLocatorEventChannel(messenger)
-        readiumReaderStatusEventChannel = ReadiumReaderStatusEventChannel(messenger)
-        errorChannel = ReadiumErrorEventChannel(messenger)
-        narrationSyncEventChannel = NarrationSyncEventChannel(messenger)
+        timedBasedStateEventChannel?.rebind()
+        externalPlaybackCommandEventChannel?.rebind()
+        textLocatorEventChannel?.rebind()
+        readiumReaderStatusEventChannel?.rebind()
+        errorChannel?.rebind()
+        narrationSyncEventChannel?.rebind()
     }
 
-    /** Activity cleanup plus the event channels. Call when the engine detaches. */
-    fun detachEngine() {
-        detach()
-        disposeEventChannels()
+    /** Re-registers the channels on the messenger captured for this engine. */
+    fun rebindEventChannels() {
+        val messenger = channelMessenger ?: return
+        ensureEventChannels(messenger)
     }
 
     private fun disposeEventChannels() {
@@ -521,12 +561,18 @@ object ReadiumReader :
 
         narrationSyncEventChannel?.dispose()
         narrationSyncEventChannel = null
+
+        channelMessenger = null
     }
+
+    /** Application context while this engine is bound. Null after [detachEngine]. */
+    val applicationOrNull: Application?
+        get() = appRef?.get()
 
     // Safe getter — returns applicationContext or throws if not available.
     val application: Application
         get() =
-            appRef?.get()
+            applicationOrNull
                 ?: throw IllegalStateException("Application not initialized. Call ReadiumReader.attach(...) first.")
 
     var currentReaderWidget: ReadiumReaderWidget?

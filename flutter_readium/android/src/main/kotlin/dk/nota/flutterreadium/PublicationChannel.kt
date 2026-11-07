@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.readium.r2.shared.ExperimentalReadiumApi
@@ -198,6 +199,13 @@ internal class PublicationMethodCallHandler : MethodChannel.MethodCallHandler {
                 )
                 val maxEdge = (args["maxEdge"] as? Number)?.toInt()?.coerceIn(1, 2048) ?: 400
                 return publicationCover(url, maxEdge)
+            }
+
+            "ensureEventChannels" -> {
+                withContext(Dispatchers.Main.immediate) {
+                    ReadiumReader.rebindEventChannels()
+                }
+                return Try.success(null)
             }
 
             "openPublication" -> {

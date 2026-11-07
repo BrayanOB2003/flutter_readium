@@ -57,6 +57,17 @@ class MethodChannelFlutterReadium extends FlutterReadiumPlatform {
   Stream<ReadiumError>? _onErrorEvent;
   Stream<bool>? _onNarrationSyncChanged;
 
+  @override
+  Future<void> ensureEventChannels() async {
+    try {
+      await methodChannel.invokeMethod<void>('ensureEventChannels');
+    } on MissingPluginException {
+      // The native side registered the streams when the plugin started.
+    } on PlatformException {
+      // Listening still uses the handler registered with the engine.
+    }
+  }
+
   /// Fires whenever the Reader's current Locator changes.
   ///
   /// The underlying event channel opts in to native-side buffering so the first

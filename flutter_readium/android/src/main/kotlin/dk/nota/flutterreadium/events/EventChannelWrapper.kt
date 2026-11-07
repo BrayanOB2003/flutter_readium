@@ -26,6 +26,17 @@ abstract class EventChannelWrapper<T>(
         eventChannel.setStreamHandler(this)
     }
 
+    /**
+     * Registers the stream handler again.
+     *
+     * A later engine in the same process can leave this object in place while
+     * its native handler was cleared. The next Dart listen then fails even
+     * though opening a publication still works.
+     */
+    fun rebind() {
+        eventChannel.setStreamHandler(this)
+    }
+
     override fun onListen(
         arguments: Any?,
         events: EventChannel.EventSink?,
