@@ -2,6 +2,7 @@
 
 package dk.nota.flutterreadium
 
+import android.util.Size
 import dk.nota.flutterreadium.models.TextSearchResult
 import dk.nota.flutterreadium.navigators.AudioRecoveryPolicy
 import io.flutter.plugin.common.MethodCall
@@ -14,8 +15,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.InternalReadiumApi
+import org.readium.r2.shared.extensions.toPng
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
+import org.readium.r2.shared.publication.services.coverFitting
 import org.readium.r2.shared.util.Try
 import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.getOrElse
@@ -184,6 +187,17 @@ internal class PublicationMethodCallHandler : MethodChannel.MethodCallHandler {
                 val args = arguments as List<Any?>
                 val pubUrlStr = args[0] as String
                 return loadPublication(pubUrlStr)
+            }
+
+            "publicationCover" -> {
+                val args = arguments as? Map<*, *> ?: return Try.failure(
+                    PublicationError.InvalidArgument("publicationCover expects a map"),
+                )
+                val url = args["url"] as? String ?: return Try.failure(
+                    PublicationError.InvalidArgument("publicationCover requires url"),
+                )
+                val maxEdge = (args["maxEdge"] as? Number)?.toInt()?.coerceIn(1, 2048) ?: 400
+                return publicationCover(url, maxEdge)
             }
 
             "openPublication" -> {
@@ -463,6 +477,32 @@ internal class PublicationMethodCallHandler : MethodChannel.MethodCallHandler {
         // Close the publication to avoid leaks.
         publication.close()
         return Try.success(pubJsonManifest)
+    }
+
+    /**
+     * PNG cover, scaled to [maxEdge]. A PDF cover is its first page.
+     *
+     * A publication already open for reading is left open. Any other load is closed.
+     */
+    @OptIn(InternalReadiumApi::class)
+    private suspend fun publicationCover(
+        url: String,
+        maxEdge: Int,
+    ): Try<Any?, PublicationError> {
+        val publication =
+            ReadiumReader.loadPublicationFromUrl(url).getOrElse { error ->
+                return Try.failure(error)
+            }
+        val borrowed = ReadiumReader.currentPublication === publication
+        return try {
+            val bitmap = publication.coverFitting(Size(maxEdge, maxEdge))
+            Try.success(bitmap?.toPng())
+        } catch (error: Exception) {
+            PluginLog.w(TAG, "publicationCover: $error")
+            Try.success(null)
+        } finally {
+            if (!borrowed) publication.close()
+        }
     }
 
     /**

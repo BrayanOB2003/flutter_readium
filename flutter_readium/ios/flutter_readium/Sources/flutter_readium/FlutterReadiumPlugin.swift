@@ -203,6 +203,16 @@ public class FlutterReadiumPlugin: NSObject, FlutterPlugin, ReadiumShared.Warnin
           }
         }
       }
+    case "publicationCover":
+      let args = call.arguments as? [String: Any] ?? [:]
+      let pubUrlStr = args["url"] as? String ?? ""
+      let maxEdge = CGFloat((args["maxEdge"] as? NSNumber)?.doubleValue ?? 400)
+      Task.detached(priority: .high) {
+        let bytes = await self.publicationCover(fromUrlStr: pubUrlStr, maxEdge: maxEdge)
+        await MainActor.run {
+          result(bytes)
+        }
+      }
     case "loadPublication":
       let args = call.arguments as! [Any?]
       let pubUrlStr = args[0] as! String
@@ -834,6 +844,45 @@ extension FlutterReadiumPlugin {
   @MainActor
   func emitExternalPlaybackCommand(_ command: ReadiumExternalPlaybackCommand) {
     externalPlaybackCommandStreamHandler?.sendEvent(command.toMap())
+  }
+
+  /// PNG cover scaled to [maxEdge]. A PDF cover is the first page.
+  ///
+  /// The publication already open for reading stays open. Any other load is closed.
+  private func publicationCover(fromUrlStr: String, maxEdge: CGFloat) async -> FlutterStandardTypedData? {
+    guard !fromUrlStr.isEmpty else { return nil }
+    let publication: Publication
+    let closeWhenDone: Bool
+    if currentPublicationUrlStr == fromUrlStr, let current = currentPublication {
+      publication = current
+      closeWhenDone = false
+    } else {
+      switch await loadPublication(fromUrlStr: fromUrlStr) {
+      case .success(let loaded):
+        publication = loaded
+        closeWhenDone = true
+      case .failure:
+        return nil
+      }
+    }
+    defer {
+      if closeWhenDone { publication.close() }
+    }
+    guard let image = try? await publication.cover().get() else { return nil }
+    guard let png = fittedCover(image, maxEdge: maxEdge).pngData() else { return nil }
+    return FlutterStandardTypedData(bytes: png)
+  }
+
+  private func fittedCover(_ image: UIImage, maxEdge: CGFloat) -> UIImage {
+    let size = image.size
+    let longest = max(size.width, size.height)
+    guard longest > maxEdge, longest > 0, maxEdge > 0 else { return image }
+    let ratio = maxEdge / longest
+    let target = CGSize(width: size.width * ratio, height: size.height * ratio)
+    let renderer = UIGraphicsImageRenderer(size: target)
+    return renderer.image { _ in
+      image.draw(in: CGRect(origin: .zero, size: target))
+    }
   }
 
   private func loadPublication (

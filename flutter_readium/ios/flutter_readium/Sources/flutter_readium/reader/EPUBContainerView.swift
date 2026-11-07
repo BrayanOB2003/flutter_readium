@@ -6,17 +6,21 @@ import ReadiumShared
 /// A container view that participates in the UIKit responder chain, allowing
 /// Readium's `EditingAction` selectors to be dispatched to it.
 ///
-/// `EPUBReaderView` is an `NSObject` (not a `UIResponder`) and therefore cannot
+/// The reader view is an `NSObject` (not a `UIResponder`) and therefore cannot
 /// receive actions via the responder chain. This custom `UIView` subclass sits
 /// between the navigator's view and Flutter's view hierarchy, catching editing
-/// action selectors and forwarding them to the `EPUBReaderView`.
+/// action selectors and forwarding them to the reader.
 ///
 /// Custom actions are identified by the selector name `_frAction_<id>:`. The
 /// action ID is encoded directly in the selector, so no dispatch table is needed.
 /// Methods are registered at runtime using `class_replaceMethod` so there is no
 /// compile-time limit on the number of custom actions.
+protocol SelectionActionHandling: AnyObject {
+  func handleSelectionAction(actionId: String)
+}
+
 class EPUBContainerView: UIView {
-  weak var readerView: EPUBReaderView?
+  weak var readerView: SelectionActionHandling?
 
   private static let selectorPrefix = "_frAction_"
 

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -99,6 +100,14 @@ abstract class FlutterReadiumPlatform extends PlatformInterface {
   Future<Publication> loadPublication(String pubUrl) => throw UnimplementedError(
     'loadPublication(pubUrl) has not been implemented.',
   );
+
+  /// PNG bytes of the publication cover, scaled so the longest edge is at most [maxEdge].
+  ///
+  /// An EPUB uses its cover image. A PDF's cover is the first page, rendered.
+  /// Returns null when the publication has no cover. Does not replace the publication
+  /// currently open for reading.
+  Future<Uint8List?> publicationCover(String pubUrl, {int maxEdge = 400}) =>
+      throw UnimplementedError('publicationCover() has not been implemented.');
 
   /// Opens a publication from a URL and prepares it for reading or playback.
   /// If the URL has not already been loaded, it will implicitly do this.

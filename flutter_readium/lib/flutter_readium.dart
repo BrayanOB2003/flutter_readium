@@ -88,6 +88,12 @@ class FlutterReadium {
   /// Loads a publication from the given URL and returns a [Publication] object representing its metadata and structure. This does not open the publication for reading.
   Future<Publication> loadPublication(String pubUrl) => _readiumCall(() => _platform.loadPublication(pubUrl));
 
+  /// PNG cover for [pubUrl], scaled so its longest edge is at most [maxEdge].
+  ///
+  /// A PDF cover is the first page. Returns null when there is no cover.
+  Future<Uint8List?> publicationCover(String pubUrl, {int maxEdge = 400}) =>
+      _readiumCall(() => _platform.publicationCover(pubUrl, maxEdge: maxEdge));
+
   /// Opens a publication for reading from the given URL. This is required before any reading-related operations can be performed on the publication.
   ///
   /// Returns a [Publication] object representing the opened publication.

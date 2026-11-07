@@ -2,7 +2,7 @@ import ReadiumNavigator
 import ReadiumShared
 
 /// `SelectableNavigatorDelegate` conformance and selection-driven action handling.
-extension EPUBReaderView {
+extension EPUBReaderView: SelectionActionHandling {
 
   public func navigator(_ navigator: SelectableNavigator, shouldShowMenuForSelection selection: Selection) -> Bool {
     Log.reader.debug("shouldShowMenuForSelection: \(selection.locator)")

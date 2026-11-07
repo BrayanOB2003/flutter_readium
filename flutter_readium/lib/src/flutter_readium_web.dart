@@ -146,6 +146,9 @@ class FlutterReadiumWebPlugin extends FlutterReadiumPlatform {
     return publication;
   }
 
+  @override
+  Future<Uint8List?> publicationCover(String pubUrl, {int maxEdge = 400}) async => null;
+
   static Map<String, dynamic> _transformPublicationJson(
     final Map<String, dynamic> publicationJson,
   ) {

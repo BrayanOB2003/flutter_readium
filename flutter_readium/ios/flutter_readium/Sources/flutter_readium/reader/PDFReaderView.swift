@@ -1,13 +1,15 @@
 import ReadiumNavigator
 import ReadiumShared
 import Flutter
+import PDFKit
 import UIKit
 
-public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PDFNavigatorDelegate {
+public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PDFNavigatorDelegate, SelectionActionHandling, UIGestureRecognizerDelegate {
 
   private let channel: ReadiumReaderChannel
-  private let _view: UIView
+  private let _view: EPUBContainerView
   private let pdfViewController: PDFNavigatorViewController
+  private var navigationAdapter: DirectionalNavigationAdapter?
   private var hasSentReady = false
   private var isJumpingToLocator = false
   private let publication: Publication
@@ -53,7 +55,13 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
     Log.reader.info("Publication: (identifier=\(String(describing: publication.metadata.identifier)),title=\(String(describing: publication.metadata.title)))")
     Log.reader.info("Added PDF publication at \(String(describing: publication.baseURL))")
 
-    let config = PDFNavigatorViewController.Configuration()
+    let containerView = EPUBContainerView()
+    var config = PDFNavigatorViewController.Configuration()
+    config.editingActions = Self.editingActions(
+      allowedDefaultActions: creationParams["allowedDefaultActions"] as? [String],
+      selectionActions: creationParams["selectionActions"] as? [[String: Any]] ?? [],
+      container: containerView
+    )
 
     pdfViewController = try! PDFNavigatorViewController(
       publication: publication,
@@ -61,8 +69,9 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
       config: config
     )
 
-    _view = UIView()
+    _view = containerView
     super.init()
+    containerView.readerView = self
 
     channel.setMethodCallHandler(onMethodCall)
     pdfViewController.delegate = self
@@ -84,11 +93,12 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
 
     FlutterReadiumPlugin.instance?.registerAsCurrentReaderView(self)
 
-    /// This adapter will automatically turn pages when the user taps the
-    /// screen edges or presses arrow keys.
-    DirectionalNavigationAdapter(
-      pointerPolicy: .init(types: [.mouse, .touch])
-    ).bind(to: pdfViewController)
+    /// Arrow keys turn pages. Taps are reported to Flutter instead, which
+    /// decides what each part of the screen does.
+    navigationAdapter = DirectionalNavigationAdapter(
+      pointerPolicy: .init(types: [])
+    )
+    navigationAdapter?.bind(to: pdfViewController)
 
     Log.reader.debug("init success")
   }
@@ -98,6 +108,100 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
   public func navigatorContentInset(_ navigator: VisualNavigator) -> UIEdgeInsets? {
     // All margin & safe-area is handled on the Flutter side.
     return .init(top: 0, left: 0, bottom: 0, right: 0)
+  }
+
+  public func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {
+    // PDFKit reports a tap only after its double-tap zoom recognizer fails.
+    // The book reports the tap as soon as the finger lifts, so the chrome
+    // uses that same moment.
+    view.gestureRecognizers?
+      .filter { $0 is PdfChromeTapRecognizer }
+      .forEach(view.removeGestureRecognizer)
+    let recognizer = PdfChromeTapRecognizer()
+    recognizer.cancelsTouchesInView = false
+    recognizer.delaysTouchesBegan = false
+    recognizer.delaysTouchesEnded = false
+    recognizer.delegate = self
+    recognizer.onTap = { [weak self] point in
+      self?.forwardTap(at: point, in: view)
+    }
+    view.addGestureRecognizer(recognizer)
+  }
+
+  public func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    true
+  }
+
+  private func forwardTap(at point: CGPoint, in pdfView: PDFView) {
+    let navigatorView = pdfViewController.view!
+    let location = navigatorView.convert(point, from: pdfView)
+    let size = navigatorView.bounds.size
+    guard size.width > 0, size.height > 0 else { return }
+    channel.onTap(
+      x: Double(location.x / size.width),
+      y: Double(location.y / size.height)
+    )
+  }
+
+  public func navigator(_ navigator: SelectableNavigator, shouldShowMenuForSelection selection: Selection) -> Bool {
+    let locator = selection.locator
+    channel.onTextSelected(locator: locator, selectedText: locator.text.highlight)
+    return true
+  }
+
+  public func navigator(_ navigator: SelectableNavigator, canPerformAction action: EditingAction, for selection: Selection) -> Bool {
+    return true
+  }
+
+  func handleSelectionAction(actionId: String) {
+    guard let selection = pdfViewController.currentSelection else {
+      Log.reader.warn("handleSelectionAction: no current selection")
+      return
+    }
+    let locator = selection.locator
+    channel.onSelectionAction(
+      actionId: actionId,
+      locator: locator,
+      selectedText: locator.text.highlight
+    )
+    if actionId == "save" {
+      pdfViewController.clearSelection()
+    }
+  }
+
+  private static func editingActions(
+    allowedDefaultActions: [String]?,
+    selectionActions: [[String: Any]],
+    container: EPUBContainerView
+  ) -> [EditingAction] {
+    var editingActions: [EditingAction]
+    if let allowedDefaults = allowedDefaultActions {
+      editingActions = []
+      for name in allowedDefaults {
+        switch name {
+        case "copy": editingActions.append(.copy)
+        case "share": editingActions.append(.share)
+        case "lookup": editingActions.append(.lookup)
+        case "translate": editingActions.append(.translate)
+        default: break
+        }
+      }
+    } else {
+      editingActions = EditingAction.defaultActions
+    }
+
+    let actions = selectionActions.compactMap { dict -> (id: String, title: String)? in
+      guard let id = dict["id"] as? String, let title = dict["title"] as? String else { return nil }
+      return (id: id, title: title)
+    }
+    if !actions.isEmpty {
+      container.configureActions(actions)
+      editingActions += container.editingActions()
+    }
+    return editingActions
   }
 
   public func navigator(_ navigator: Navigator, presentError error: NavigatorError) {
@@ -309,11 +413,12 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
       applyDecorations(decorations, forGroup: identifier)
       result(nil)
     case "configureSelectionActions":
-      // ReaderWidget calls this unconditionally on every reader (see
-      // reader_widget.dart), but PDF has no custom selection-action UI to
-      // configure. No-op rather than let it fall through to `default` and
-      // surface as a MissingPluginException on the Dart side.
-      Log.reader.warn("configureSelectionActions: not supported for PDF")
+      let args = call.arguments as! [[String: Any]]
+      let actions = args.compactMap { dict -> (id: String, title: String)? in
+        guard let id = dict["id"] as? String, let title = dict["title"] as? String else { return nil }
+        return (id: id, title: title)
+      }
+      _view.configureActions(actions)
       result(nil)
     case "notifyUserNavigation":
       // Also called unconditionally on every user tap/swipe (see
@@ -333,5 +438,74 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
       Log.reader.warn("Unhandled call: \(call.method)")
       result(FlutterMethodNotImplemented)
     }
+  }
+}
+
+/// Reports a tap when the finger lifts, without waiting for PDFKit to decide
+/// the gesture was not a double-tap zoom. A drag or a long press is not a tap,
+/// matching the book: the chrome hears the lift of a tap and nothing else.
+private final class PdfChromeTapRecognizer: UIGestureRecognizer {
+  var onTap: ((CGPoint) -> Void)?
+
+  private var origin: CGPoint?
+  private var beganAt: TimeInterval?
+  private var dismissesSelection = false
+  private let slop: CGFloat = 10
+  private let maximumDuration: TimeInterval = 0.5
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard
+      state == .possible,
+      touches.count == 1,
+      event.allTouches?.count == 1,
+      let touch = touches.first
+    else {
+      state = .failed
+      return
+    }
+    origin = touch.location(in: view)
+    beganAt = touch.timestamp
+    dismissesSelection = (view as? PDFView)?.currentSelection != nil
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let origin, let touch = touches.first else { return }
+    if distance(from: origin, to: touch.location(in: view)) > slop {
+      state = .failed
+    }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let origin, let beganAt, let touch = touches.first else {
+      state = .failed
+      return
+    }
+    let point = touch.location(in: view)
+    let held = touch.timestamp - beganAt
+    guard
+      !dismissesSelection,
+      distance(from: origin, to: point) <= slop,
+      held <= maximumDuration
+    else {
+      state = .failed
+      return
+    }
+    state = .recognized
+    onTap?(point)
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = .cancelled
+  }
+
+  override func reset() {
+    super.reset()
+    origin = nil
+    beganAt = nil
+    dismissesSelection = false
+  }
+
+  private func distance(from start: CGPoint, to end: CGPoint) -> CGFloat {
+    hypot(end.x - start.x, end.y - start.y)
   }
 }

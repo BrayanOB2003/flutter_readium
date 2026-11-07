@@ -157,6 +157,16 @@ class MethodChannelFlutterReadium extends FlutterReadiumPlatform {
   }
 
   @override
+  Future<Uint8List?> publicationCover(String pubUrl, {int maxEdge = 400}) async {
+    final bytes = await methodChannel.invokeMethod<Uint8List>('publicationCover', {
+      'url': pubUrl,
+      'maxEdge': maxEdge,
+    });
+    if (bytes == null || bytes.isEmpty) return null;
+    return bytes;
+  }
+
+  @override
   Future<void> setCustomHeaders(Map<String, String> headers) async {
     await methodChannel.invokeMethod<void>('setCustomHeaders', {'httpHeaders': headers});
   }

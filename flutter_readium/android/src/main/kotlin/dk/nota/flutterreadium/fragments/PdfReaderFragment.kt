@@ -1,9 +1,16 @@
 package dk.nota.flutterreadium.fragments
 
 import android.os.Bundle
+import java.util.WeakHashMap
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import androidx.fragment.app.commitNow
+import com.github.barteksc.pdfviewer.PDFView
+import kotlin.math.hypot
 import androidx.lifecycle.lifecycleScope
 import dk.nota.flutterreadium.R
 import dk.nota.flutterreadium.ReadiumReader
@@ -15,7 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.readium.adapter.pdfium.navigator.PdfiumNavigatorFragment
 import org.readium.adapter.pdfium.navigator.PdfiumPreferences
+import org.readium.r2.navigator.OverflowableNavigator
 import org.readium.r2.navigator.pdf.PdfNavigatorFragment
+import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.util.AbsoluteUrl
@@ -189,6 +198,80 @@ class PdfReaderFragment :
 
     private var attachingNavigatorFragment = false
 
+    private val immediateTapViews = WeakHashMap<PDFView, Boolean>()
+
+    /// The PDF engine reports a tap only after the double-tap zoom timeout.
+    /// The book reports it when the finger lifts, so listen for that lift.
+    private fun watchPdfTaps(root: View) {
+        root.viewTreeObserver.addOnGlobalLayoutListener(
+            object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    if (!root.isAttachedToWindow) {
+                        root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                        return
+                    }
+                    root.findPdfView()?.let(::installImmediateTap)
+                }
+            },
+        )
+    }
+
+    private fun installImmediateTap(pdfView: PDFView) {
+        if (immediateTapViews.containsKey(pdfView)) return
+        val drag =
+            try {
+                val field = PDFView::class.java.getDeclaredField("dragPinchManager")
+                field.isAccessible = true
+                field.get(pdfView) as View.OnTouchListener
+            } catch (error: ReflectiveOperationException) {
+                Log.w(TAG, "::installImmediateTap - touch listener unavailable", error)
+                return
+            }
+        immediateTapViews[pdfView] = true
+        val slop = ViewConfiguration.get(pdfView.context).scaledTouchSlop.toFloat()
+        val maximumHold = ViewConfiguration.getLongPressTimeout().toLong()
+        var downX = 0f
+        var downY = 0f
+        var downAt = 0L
+        var moved = false
+        pdfView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    downAt = event.eventTime
+                    moved = false
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> moved = true
+                MotionEvent.ACTION_MOVE -> {
+                    if (hypot(event.x - downX, event.y - downY) > slop) moved = true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val held = event.eventTime - downAt
+                    val tap = !moved && held in 0..maximumHold
+                    val handled = drag.onTouch(view, event)
+                    if (tap && view.width > 0 && view.height > 0) {
+                        ReadiumReader.currentReaderWidget?.channel?.onTap(
+                            x = (event.x / view.width).toDouble(),
+                            y = (event.y / view.height).toDouble(),
+                        )
+                    }
+                    return@setOnTouchListener handled
+                }
+            }
+            drag.onTouch(view, event)
+        }
+    }
+
+    private fun View.findPdfView(): PDFView? {
+        if (this is PDFView) return this
+        if (this !is ViewGroup) return null
+        for (index in 0 until childCount) {
+            getChildAt(index).findPdfView()?.let { return it }
+        }
+        return null
+    }
+
     private fun attachNavigator() {
         Log.d(TAG, "::attachNavigator() - $instance")
         if (navigator != null) {
@@ -220,6 +303,13 @@ class PdfReaderFragment :
         }
         pdfNavigator = pdfNav
         Log.d(TAG, "::attachNavigator() - $instance - got navigator = $pdfNav")
+        (pdfNav as OverflowableNavigator).apply {
+            // Arrow keys turn pages. A tap is reported from the PDF view on
+            // finger-up. The engine's own tap waits out a possible double-tap
+            // zoom, which would open the chrome later than in a book.
+            addInputListener(DirectionalNavigationAdapter(this, tapEdges = emptySet()))
+        }
+        watchPdfTaps(pdfNav.requireView())
 
         // PDF has no PaginationListener equivalent — emit page-changed events by
         // observing the navigator's currentLocator. Locator.locations.position is

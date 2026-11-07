@@ -73,6 +73,9 @@ class MockFlutterReadiumPlatform with MockPlatformInterfaceMixin implements Flut
   Future<Publication> loadPublication(String pubUrl) async => _maybeThrow('loadPublication', _pub('Loaded'));
 
   @override
+  Future<Uint8List?> publicationCover(String pubUrl, {int maxEdge = 400}) async => null;
+
+  @override
   Future<Publication> openPublication(String pubUrl) async => _maybeThrow('openPublication', _pub('Opened'));
 
   @override
