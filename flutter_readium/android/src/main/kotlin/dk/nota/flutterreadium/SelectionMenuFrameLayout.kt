@@ -3,6 +3,7 @@ package dk.nota.flutterreadium
 import android.content.Context
 import android.util.AttributeSet
 import android.view.ActionMode
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -19,6 +20,15 @@ class SelectionMenuFrameLayout
         defStyleAttr: Int = 0,
     ) : FrameLayout(context, attrs, defStyleAttr) {
         var decorateActionMode: ((ActionMode.Callback) -> ActionMode.Callback)? = null
+
+        private val pageTurns = BookPageTurnController()
+
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            pageTurns.beforeDispatch(this, event)
+            val handled = super.dispatchTouchEvent(event)
+            pageTurns.afterDispatch()
+            return handled
+        }
 
         override fun startActionModeForChild(
             originalView: View,

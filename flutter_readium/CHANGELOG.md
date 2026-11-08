@@ -12,6 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Book mode on Android jumped back after a slow page drag.** The turn was kept only when the finger was still moving fast as it lifted, so a drag that had already crossed the page returned to the previous one. The same thing happened on the last page of a chapter. The page now stays once the drag has passed the halfway point. A short drag still returns, and a quick flick is unchanged.
 - **Saving a selection on Android sometimes did nothing until a handle was moved.** The highlight stayed on the page, but the selection Readium reads had been cleared after the long-press. It is put back before Copy, Share, or Save runs.
 - **Dragging a selection handle on Android after letting go moved one letter at a time.** The drag that continues from the long-press already stepped by words, but releasing left the system selection in place, and its handles move by character. The page keeps its own handles. The system selection is installed only while Copy, Share, or Save reads it.
 - **Android selection handles now move by whole words and punctuation.** Measuring each word while the finger moved made the highlight lag, and the point being followed was not the tap. The highlight follows the finger. The handles match Android's own and appear when the finger lifts, on the word or punctuation stop.

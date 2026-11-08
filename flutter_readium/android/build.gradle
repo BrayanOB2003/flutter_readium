@@ -75,6 +75,8 @@ android {
       "MEDIA_OVERLAY_FETCH_CONCURRENCY",
       mediaOverlayFetchConcurrency.toString()
     )
+
+    consumerProguardFiles 'consumer-rules.pro'
   }
 
   buildFeatures {
