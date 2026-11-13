@@ -14,6 +14,12 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
   private var isJumpingToLocator = false
   private let publication: Publication
   private var lastViewport: NavigatorViewport?
+  private var documentObserver: NSObjectProtocol?
+
+  /// The navigator replaces its PDF view when the layout changes.
+  weak var pdfView: PDFDocumentView?
+  var decorationsByGroup: [String: [Decoration]] = [:]
+  var renderedDecorations: [String: [RenderedPDFDecoration]] = [:]
 
   var publicationIdentifier: String?
 
@@ -24,6 +30,9 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
 
   deinit {
     Log.reader.info("deinit PDFReaderView")
+    if let documentObserver {
+      NotificationCenter.default.removeObserver(documentObserver)
+    }
     pdfViewController.view.removeFromSuperview()
     pdfViewController.delegate = nil
     channel.setMethodCallHandler(nil)
@@ -111,6 +120,19 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
   }
 
   public func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {
+    pdfView = view
+    // The document is assigned after this call, and a new document has no annotations.
+    if let documentObserver {
+      NotificationCenter.default.removeObserver(documentObserver)
+    }
+    documentObserver = NotificationCenter.default.addObserver(
+      forName: .PDFViewDocumentChanged,
+      object: view,
+      queue: .main
+    ) { [weak self] _ in
+      self?.renderAllDecorations()
+    }
+
     // PDFKit reports a tap only after its double-tap zoom recognizer fails.
     // The book reports the tap as soon as the finger lifts, so the chrome
     // uses that same moment.
@@ -136,6 +158,16 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
   }
 
   private func forwardTap(at point: CGPoint, in pdfView: PDFView) {
+    // As in the book, a tap on a decoration is not a tap for the reader chrome.
+    if let hit = decoration(at: point, in: pdfView) {
+      channel.onDecorationInteraction(
+        decorationId: hit.decoration.id,
+        group: hit.group,
+        type: "tap",
+        locator: hit.decoration.locator
+      )
+      return
+    }
     let navigatorView = pdfViewController.view!
     let location = navigatorView.convert(point, from: pdfView)
     let size = navigatorView.bounds.size
@@ -147,7 +179,7 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
   }
 
   public func navigator(_ navigator: SelectableNavigator, shouldShowMenuForSelection selection: Selection) -> Bool {
-    let locator = selection.locator
+    let locator = selectionLocator(from: selection.locator)
     channel.onTextSelected(locator: locator, selectedText: locator.text.highlight)
     return true
   }
@@ -161,7 +193,7 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
       Log.reader.warn("handleSelectionAction: no current selection")
       return
     }
-    let locator = selection.locator
+    let locator = selectionLocator(from: selection.locator)
     channel.onSelectionAction(
       actionId: actionId,
       locator: locator,
@@ -290,12 +322,6 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
     return false
   }
 
-  public func applyDecorations(_ decorations: [Decoration], forGroup groupIdentifier: String) {
-    // PDFNavigatorViewController does not conform to DecorableNavigator in
-    // swift-toolkit 3.9.0. Surface the call but no-op.
-    Log.reader.debug("applyDecorations: not supported for PDF (group=\(groupIdentifier), count=\(decorations.count))")
-  }
-
   public func onCustomEditingAction() -> Void {
     Log.reader.debug("onCustomEditingAction: not supported for PDF")
   }
@@ -399,8 +425,6 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
       pdfViewController.submitPreferences(preferences.readium)
       result(nil)
     case "applyDecorations":
-      // PDF has no DecorableNavigator conformance — apply through the protocol
-      // method, which logs and no-ops.
       let args = call.arguments as! [Any?]
       let identifier = args[0] as! String
       let decorationsStr = args[1] as! [String]

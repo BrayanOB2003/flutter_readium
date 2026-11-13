@@ -76,6 +76,27 @@ PDFs are represented as a single-resource publication. The canonical position li
 - On iOS the locator's `fragments` carry `"page=N"` (where the upstream parser produces it).
 - Consumers should read `locations.position` for page navigation and round-trip via `goToLocator`.
 
+### Selections and decorations (iOS)
+
+A text selection in a PDF produces a locator that points at the selected area, using the PDF fragments from the [Readium Locator model](https://github.com/readium/architecture/tree/master/models/locators) (RFC 3778):
+
+```json
+{
+  "locations": {
+    "fragments": ["page=5", "viewrect=72.00,140.50,310.20,28.00"],
+    "position": 5
+  },
+  "text": { "highlight": "selected words", "before": "…", "after": "…" }
+}
+```
+
+- `viewrect=left,top,width,height` is in PDF points from the top-left of the page box and bounds the whole selection. Page rotation is not applied.
+- `page=` is the page that holds the selection, which is not always the current page in spread or scroll layouts. A selection that crosses pages is recorded on its first page.
+- `applyDecorations` draws `highlight` and `underline` styles as PDF annotations, one per text line. It finds `text.highlight` on the page and uses `viewrect`, then `text.before`, to pick the right occurrence. Without matching text it falls back to the text inside `viewrect`. A locator with neither cannot be drawn and is skipped with a log warning.
+- Tapping a drawn decoration fires `onDecorationInteraction` instead of a chrome tap.
+- Releasing a dragged selection handle can shorten the selection by a few characters. This is PDFKit's own behaviour (Files and Books do the same), so the plugin does not correct it.
+- Scanned PDFs without a text layer cannot be selected or decorated. Android PDF does not support text selection or decorations.
+
 **Don't duplicate upstream models.** If upstream Readium already models something (locator position, decoration style, …), use that representation rather than inventing a plugin-side parallel — alternatives create two sources of truth that diverge over time.
 
 ## Our additions to otherLocations
