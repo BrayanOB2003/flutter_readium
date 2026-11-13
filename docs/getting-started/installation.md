@@ -6,7 +6,7 @@
 |-------------|---------|
 | Flutter SDK | ≥ 3.44.8 |
 | Dart SDK | ≥ 3.8.0 |
-| Android minSdk | 24 |
+| Android minSdk | 28 |
 | iOS | 15.0+ |
 
 ## 1. Add the dependency
@@ -23,11 +23,17 @@ In `android/app/build.gradle`:
 
 ```gradle
 android {
+  compileSdkExtension 19
+
   defaultConfig {
-    minSdkVersion 24
+    minSdkVersion 28
   }
 }
 ```
+
+`compileSdkExtension 19` is needed by the PDF reader (androidx.pdf). Without it the build fails at
+`checkDebugAarMetadata`. It needs an Android SDK platform with extension level 19 or higher
+installed (Android Studio's SDK Manager).
 
 ### Core library desugaring
 

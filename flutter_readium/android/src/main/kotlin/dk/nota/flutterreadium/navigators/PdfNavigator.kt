@@ -14,14 +14,13 @@ import dk.nota.flutterreadium.withMainContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import org.readium.adapter.pdfium.navigator.PdfiumEngineProvider
-import org.readium.adapter.pdfium.navigator.PdfiumPreferences
-import org.readium.r2.navigator.pdf.PdfNavigatorFactory
+import org.readium.r2.navigator.Decoration
 import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
@@ -33,13 +32,9 @@ private const val TAG = "PdfNavigator"
 private const val CURRENT_VISUAL_LOCATOR_KEY = "currentVisualCurrentLocator"
 
 /**
- * Wraps the Readium [PdfNavigatorFragment] (Pdfium-backed) inside the same
- * `BaseNavigator` shape that [EpubNavigator] uses, so the rest of the plugin
- * (ReadiumReader, ReadiumReaderWidget) can treat the two interchangeably.
- *
- * No preferences/decorations support yet — preferences land in Phase 5 of the
- * PDF support roadmap. Decorations are not exposed by the upstream PDF
- * navigator in kotlin-toolkit.
+ * Wraps [PdfReaderFragment] (androidx.pdf) inside the same `BaseNavigator` shape that
+ * [EpubNavigator] uses, so the rest of the plugin (ReadiumReader, ReadiumReaderWidget)
+ * can treat the two interchangeably.
  */
 @ExperimentalCoroutinesApi
 @OptIn(ExperimentalReadiumApi::class)
@@ -51,12 +46,16 @@ class PdfNavigator :
         publication: Publication,
         initialLocator: Locator?,
         visualListener: EpubNavigator.VisualListener,
+        initialPreferences: FlutterPdfPreferences? = null,
     ) : super(publication, initialLocator) {
         this.visualListener = visualListener
+        this.initialPreferences = initialPreferences ?: FlutterPdfPreferences()
         this.currentVisualLocator = initialLocator
     }
 
     val visualListener: EpubNavigator.VisualListener
+
+    private val initialPreferences: FlutterPdfPreferences
 
     private var currentVisualLocator: Locator?
         get() = state[CURRENT_VISUAL_LOCATOR_KEY] as? Locator
@@ -77,13 +76,8 @@ class PdfNavigator :
             PdfReaderFragment().apply {
                 vm =
                     PdfReaderViewModel().apply {
-                        navigatorFactory =
-                            PdfNavigatorFactory(
-                                publication = publication,
-                                pdfEngineProvider = PdfiumEngineProvider(),
-                            )
                         locator = this@PdfNavigator.initialLocator
-                        preferences = PdfiumPreferences()
+                        preferences = this@PdfNavigator.initialPreferences
                     }
                 listener = this@PdfNavigator
             }
@@ -178,6 +172,21 @@ class PdfNavigator :
         go(locator, animated = false)
     }
 
+    suspend fun applyDecorations(
+        decorations: List<Decoration>,
+        group: String,
+    ) {
+        val fragment = pdfNavigator
+        if (fragment == null) {
+            Log.e(TAG, "::applyDecorations - pdfNavigator is null!")
+            return
+        }
+        withMainContext {
+            afterFragmentStarted()
+            fragment.applyDecorations(decorations, group)
+        }
+    }
+
     suspend fun updatePreferences(preferences: FlutterPdfPreferences) {
         val fragment = pdfNavigator
         if (fragment == null) {
@@ -186,7 +195,7 @@ class PdfNavigator :
         }
         withMainContext {
             afterFragmentStarted()
-            fragment.updatePreferences(preferences.toPdfiumPreferences())
+            fragment.updatePreferences(preferences)
         }
     }
 
@@ -197,19 +206,15 @@ class PdfNavigator :
                 return
             }
 
-        val currentLocator = navigator.currentLocator
-        if (currentLocator != null) {
-            currentLocator
-                .throttleLatest(100.milliseconds)
-                .distinctUntilChanged()
-                .onEach { locator ->
-                    onCurrentLocatorChanges(locator)
-                    currentVisualLocator = locator
-                }.launchIn(this)
-                .let { jobs.add(it) }
-        } else {
-            Log.d(TAG, "::setupNavigatorListeners - currentLocator is null - navigator not ready?")
-        }
+        navigator.currentLocator
+            .filterNotNull()
+            .throttleLatest(100.milliseconds)
+            .distinctUntilChanged()
+            .onEach { locator ->
+                onCurrentLocatorChanges(locator)
+                currentVisualLocator = locator
+            }.launchIn(this)
+            .let { jobs.add(it) }
     }
 
     override fun storeState(): Bundle =

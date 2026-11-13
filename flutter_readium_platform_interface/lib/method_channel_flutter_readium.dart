@@ -253,6 +253,7 @@ class MethodChannelFlutterReadium extends FlutterReadiumPlatform {
 
   @override
   Future<void> setPDFPreferences(PDFPreferences preferences) async {
+    defaultPDFPreferences = (defaultPDFPreferences ?? const PDFPreferences()).merge(preferences);
     await currentReaderWidget?.setPDFPreferences(preferences);
   }
 

@@ -48,6 +48,17 @@ abstract class FlutterReadiumPlatform extends PlatformInterface {
     _currentReaderWidget = value;
   }
 
+  PDFPreferences? _defaultPDFPreferences;
+
+  /// The PDF preferences set so far. A PDF reader widget applies them when it is
+  /// created, so preferences set before the widget exists are not lost.
+  PDFPreferences? get defaultPDFPreferences => _defaultPDFPreferences;
+
+  @protected
+  set defaultPDFPreferences(PDFPreferences? value) {
+    _defaultPDFPreferences = value;
+  }
+
   EPUBPreferences? _defaultPreferences;
 
   /// Default EPUB preferences applied to all publications unless overridden per-session.

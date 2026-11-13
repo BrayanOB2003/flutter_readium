@@ -1087,6 +1087,7 @@ object ReadiumReader :
         fragmentManager: FragmentManager,
         viewGroup: ViewGroup,
         readerWidget: ReadiumReaderWidget,
+        initialPreferences: FlutterPdfPreferences? = null,
     ) {
         val pub = currentPublication ?: throw Exception("Publication not opened cannot enable pdf")
 
@@ -1108,7 +1109,7 @@ object ReadiumReader :
                 return@withMainContext
             }
 
-            PdfNavigator(pub, initialLocator, this@ReadiumReader).apply {
+            PdfNavigator(pub, initialLocator, this@ReadiumReader, initialPreferences).apply {
                 initNavigator()
                 visualNavigator = this
                 attachPdfNavigator(fragmentManager, viewGroup)
@@ -1273,6 +1274,7 @@ object ReadiumReader :
         fragmentManager: FragmentManager,
         viewGroup: ViewGroup,
         readerWidget: ReadiumReaderWidget,
+        initialPdfPreferences: FlutterPdfPreferences? = null,
     ) {
         val pub =
             currentPublication ?: throw Exception("Publication not opened cannot enable visual navigator")
@@ -1296,7 +1298,7 @@ object ReadiumReader :
 
         when {
             isPdf -> {
-                pdfEnable(initialLocator, fragmentManager, viewGroup, readerWidget)
+                pdfEnable(initialLocator, fragmentManager, viewGroup, readerWidget, initialPdfPreferences)
             }
 
             isComic -> {
@@ -1679,6 +1681,10 @@ object ReadiumReader :
         decorations: List<Decoration>,
         group: String,
     ) {
+        pdfNavigator?.let { navigator ->
+            navigator.applyDecorations(decorations, group)
+            return
+        }
         val navigator = epubNavigator ?: return
 
         navigator.applyDecorations(decorations, group)

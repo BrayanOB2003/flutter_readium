@@ -1,75 +1,45 @@
 package dk.nota.flutterreadium
 
-import org.readium.adapter.pdfium.navigator.PdfiumPreferences
-import org.readium.r2.navigator.preferences.Axis
-import org.readium.r2.navigator.preferences.Fit
-import org.readium.r2.navigator.preferences.ReadingProgression
-import org.readium.r2.shared.ExperimentalReadiumApi
-
-// PdfiumPreferences in kotlin-toolkit has no paginated mode — Pdfium is
-// always continuous-scroll. The Dart-side `PDFLayout.paginated` is therefore
-// mapped to `scrollAxis = HORIZONTAL`, which gives the closest equivalent
-// (single-page-wide viewport, one page per swipe). `scrollHorizontal` maps to
-// the same axis. `scrollVertical` maps to `Axis.VERTICAL`.
-//
-// Dart-side `PDFFit.page` maps to Pdfium `Fit.CONTAIN`. `PDFFit.auto` has no
-// Pdfium equivalent and is ignored on Android.
-@OptIn(ExperimentalReadiumApi::class)
+/**
+ * The PDF preferences that androidx.pdf's `PdfView` can honour.
+ *
+ * `PdfView` always scrolls vertically. `layout: paginated` is emulated by the reader: a whole
+ * page is shown, a horizontal swipe turns the page, and vertical drags are ignored. Spacing is
+ * in dp, and `spread: always` puts two pages in a row.
+ */
 data class FlutterPdfPreferences(
-    val readingProgression: ReadingProgression? = null,
-    val scrollAxis: Axis? = null,
-    val fit: Fit? = null,
+    val layout: String? = null,
+    val fit: String? = null,
+    val readingProgression: String? = null,
     val pageSpacing: Double? = null,
+    val spread: String? = null,
 ) {
-    fun toPdfiumPreferences(): PdfiumPreferences =
-        PdfiumPreferences(
-            fit = fit,
-            pageSpacing = pageSpacing,
-            readingProgression = readingProgression,
-            scrollAxis = scrollAxis,
+    /** Values set in [other] replace these; values it leaves unset are kept. */
+    fun merge(other: FlutterPdfPreferences): FlutterPdfPreferences =
+        FlutterPdfPreferences(
+            layout = other.layout ?: layout,
+            fit = other.fit ?: fit,
+            readingProgression = other.readingProgression ?: readingProgression,
+            pageSpacing = other.pageSpacing ?: pageSpacing,
+            spread = other.spread ?: spread,
         )
 
+    /** Book mode: one page at a time, turned with a horizontal swipe. */
+    val isPaginated: Boolean get() = layout == "paginated"
+
+    /** Whole pages are shown, rather than fitted to the width. */
+    val fitsPage: Boolean get() = isPaginated || fit == "page" || fit == "contain"
+
+    val isRtl: Boolean get() = readingProgression == "rtl"
+
     companion object {
-        fun fromMap(map: Map<String, Any>): FlutterPdfPreferences {
-            val rpStr = map["readingProgression"] as? String
-            val readingProgression =
-                rpStr?.let {
-                    when (it) {
-                        "ltr" -> ReadingProgression.LTR
-                        "rtl" -> ReadingProgression.RTL
-                        else -> null
-                    }
-                }
-            val layoutStr = map["layout"] as? String
-            val scrollAxis =
-                layoutStr?.let {
-                    when (it) {
-                        "paginated", "scrollHorizontal" -> Axis.HORIZONTAL
-                        "scrollVertical" -> Axis.VERTICAL
-                        else -> null
-                    }
-                }
-            val fitStr = map["fit"] as? String
-            val fit =
-                fitStr?.let {
-                    when (it) {
-                        "page", "contain" -> Fit.CONTAIN
-
-                        "width" -> Fit.WIDTH
-
-                        // Kotlin toolkit Pdfium supports only CONTAIN and WIDTH.
-                        "auto" -> null
-
-                        else -> null
-                    }
-                }
-            val pageSpacing = (map["pageSpacing"] as? Number)?.toDouble()
-            return FlutterPdfPreferences(
-                readingProgression = readingProgression,
-                scrollAxis = scrollAxis,
-                fit = fit,
-                pageSpacing = pageSpacing,
+        fun fromMap(map: Map<String, Any>): FlutterPdfPreferences =
+            FlutterPdfPreferences(
+                layout = map["layout"] as? String,
+                fit = map["fit"] as? String,
+                readingProgression = map["readingProgression"] as? String,
+                pageSpacing = (map["pageSpacing"] as? Number)?.toDouble(),
+                spread = map["spread"] as? String,
             )
-        }
     }
 }

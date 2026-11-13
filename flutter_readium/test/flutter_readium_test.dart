@@ -17,6 +17,9 @@ class MockFlutterReadiumPlatform with MockPlatformInterfaceMixin implements Flut
   @override
   EPUBPreferences? defaultPreferences;
 
+  @override
+  PDFPreferences? defaultPDFPreferences;
+
   final _textLocatorController = StreamController<Locator>.broadcast();
   final _statusController = StreamController<ReadiumReaderStatus>.broadcast();
   final _timebasedController = StreamController<ReadiumTimebasedState>.broadcast();

@@ -305,6 +305,7 @@ class _ReadiumReaderWidgetState extends State<ReadiumReaderWidget> implements Re
     final creationParams = <String, dynamic>{
       'pubIdentifier': publication.identifier,
       'preferences': defaultPreferences,
+      if (_readium.defaultPDFPreferences != null) 'pdfPreferences': _readium.defaultPDFPreferences!.toJson(),
       'initialLocator': widget.initialLocator == null ? null : json.encode(widget.initialLocator),
       'preloadPreviousPositionCount': widget.preloadPreviousPositionCount,
       'preloadNextPositionCount': widget.preloadNextPositionCount,

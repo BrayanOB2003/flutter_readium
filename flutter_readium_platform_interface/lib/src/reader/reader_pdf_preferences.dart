@@ -33,8 +33,7 @@ class PDFPreferences with Equatable implements JSONable {
   }
 
   /// Page layout / scroll mode. Unifies the iOS `scroll` + `scrollAxis` knobs
-  /// and the Android Pdfium `scrollAxis` knob into one cross-platform setting.
-  /// See [PDFLayout] for the per-platform mapping.
+  /// into one setting. See [PDFLayout] for the per-platform mapping.
   final PDFLayout? layout;
 
   /// Direction of the reading progression.
@@ -42,7 +41,7 @@ class PDFPreferences with Equatable implements JSONable {
 
   /// Spacing between pages.
   ///
-  /// - Supported on iOS and Android.
+  /// - Supported on iOS and Android (dp on Android).
   /// - Ignored on web (PDF rendering is not supported on web).
   /// - Value must be >= 0.
   final double? pageSpacing;
@@ -50,7 +49,7 @@ class PDFPreferences with Equatable implements JSONable {
   /// How pages should be fitted in the viewport.
   ///
   /// - iOS supports all values: [PDFFit.auto], [PDFFit.page], [PDFFit.width].
-  /// - Android Pdfium supports [PDFFit.page] and [PDFFit.width].
+  /// - Android supports [PDFFit.page] (whole pages); other values fit the width.
   /// - Ignored on web (PDF rendering is not supported on web).
   final PDFFit? fit;
 
@@ -64,7 +63,8 @@ class PDFPreferences with Equatable implements JSONable {
 
   /// Whether the publication is rendered with a synthetic spread (dual-page view).
   ///
-  /// - iOS only. Android `PdfiumPreferences` does not expose spread.
+  /// - iOS supports all values.
+  /// - On Android only [PDFSpread.always] has an effect (two pages per row).
   /// - Ignored on web (PDF rendering is not supported on web).
   final PDFSpread? spread;
 
@@ -82,6 +82,18 @@ class PDFPreferences with Equatable implements JSONable {
     ..putOpt('offsetFirstPage', offsetFirstPage)
     ..putOpt('spread', spread?.toJson())
     ..putOpt('visibleScrollbar', visibleScrollbar);
+
+  /// Returns these preferences with every value set in [other] replaced.
+  /// Values [other] leaves unset are kept.
+  PDFPreferences merge(PDFPreferences other) => PDFPreferences(
+    layout: other.layout ?? layout,
+    readingProgression: other.readingProgression ?? readingProgression,
+    pageSpacing: other.pageSpacing ?? pageSpacing,
+    fit: other.fit ?? fit,
+    offsetFirstPage: other.offsetFirstPage ?? offsetFirstPage,
+    spread: other.spread ?? spread,
+    visibleScrollbar: other.visibleScrollbar ?? visibleScrollbar,
+  );
 
   PDFPreferences copyWith({
     Object? layout = unset,
@@ -121,16 +133,15 @@ class PDFPreferences with Equatable implements JSONable {
 /// - [paginated]
 ///   - iOS (PDFKit): `scroll = false` — true paginated mode with page-flip
 ///     animation and snap.
-///   - Android (Pdfium): `scrollAxis = horizontal` — Pdfium has no paginated
-///     mode, but a single-page-wide viewport gives one-page-per-swipe
-///     navigation as the closest equivalent.
+///   - Android: one page at a time. A horizontal swipe turns the page and
+///     vertical drags are ignored (androidx.pdf only scrolls vertically, so
+///     the reader emulates this).
 /// - [scrollVertical]
 ///   - iOS: `scroll = true, scrollAxis = vertical`.
-///   - Android: `scrollAxis = vertical`.
+///   - Android: always the case.
 /// - [scrollHorizontal]
 ///   - iOS: `scroll = true, scrollAxis = horizontal`.
-///   - Android: `scrollAxis = horizontal` (same wire mapping as [paginated]
-///     but kept distinct because iOS treats the two differently).
+///   - Android: scrolls vertically (androidx.pdf has no horizontal mode).
 enum PDFLayout {
   paginated,
   scrollVertical,

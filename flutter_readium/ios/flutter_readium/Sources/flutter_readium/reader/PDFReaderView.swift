@@ -85,6 +85,11 @@ public class PDFReaderView: NSObject, FlutterPlatformView, ReadiumReaderView, PD
     channel.setMethodCallHandler(onMethodCall)
     pdfViewController.delegate = self
 
+    // Preferences set before the reader exists arrive here, as for the EPUB reader.
+    if let preferences = creationParams["pdfPreferences"] as? [String: Any] {
+      pdfViewController.submitPreferences(FlutterPDFPreferences(fromMap: preferences).readium)
+    }
+
     let child: UIView = pdfViewController.view
     let view = _view
     view.addSubview(pdfViewController.view)

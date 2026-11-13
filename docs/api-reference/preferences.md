@@ -65,12 +65,12 @@ Controls the visual appearance of the PDF reader. All fields are optional; omitt
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `layout` | `PDFLayout?` | One of `paginated`, `scrollVertical`, `scrollHorizontal`. |
+| `layout` | `PDFLayout?` | One of `paginated`, `scrollVertical`, `scrollHorizontal`. On Android only `paginated` is distinguished: it shows one page, a horizontal swipe turns it and vertical drags are ignored. The other two scroll vertically (androidx.pdf has no horizontal mode). |
 | `readingProgression` | `PDFReadingProgression?` | `ltr` or `rtl`. |
-| `pageSpacing` | `double?` | Spacing between pages. Supported on iOS + Android. Must be `>= 0`. |
-| `fit` | `PDFFit?` | One of `auto`, `page`, `width`. iOS supports all values. Android supports `page` + `width`; `auto` is ignored on Android. |
+| `pageSpacing` | `double?` | Spacing between pages (dp on Android). Supported on iOS + Android. Must be `>= 0`. |
+| `fit` | `PDFFit?` | One of `auto`, `page`, `width`. iOS supports all values. On Android `page` shows whole pages and the others fit the width. |
 | `offsetFirstPage` | `bool?` | When `true`, the first page is displayed alone rather than paired in two-up view. Useful when the cover is page 1. **iOS only.** |
-| `spread` | `PDFSpread?` | Synthetic spread (dual-page view) mode: `auto`, `never`, `always`. **iOS only.** |
+| `spread` | `PDFSpread?` | Synthetic spread (dual-page view) mode: `auto`, `never`, `always`. On Android only `always` has an effect (two pages per row). |
 | `visibleScrollbar` | `bool?` | Whether the scroll indicator is shown while scrolling. **iOS only.** |
 
 ```dart

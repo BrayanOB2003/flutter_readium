@@ -5,13 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Breaking
+
+- **Android now needs `minSdkVersion` 28.** The PDF reader moved to androidx.pdf, which does not run below Android 9. Raise `minSdkVersion` to 28 and set `compileSdkExtension = 19` in your app's `android/app/build.gradle`; about 97% of active devices are covered.
+
 ### Added
 
+- **PDF text selection and highlights on Android.** The PDF reader now selects text, offers `allowedDefaultActions` (copy, share, select all) and your `selectionActions`, reports `onTextSelected`/`onSelectionAction`, paints `applyDecorations` highlights and underlines, and reports taps on them through `onDecorationInteraction`. Selection locators use the same `page=` and `viewrect=` fragments as iOS. The selection has start and end handles. `PDFLayout.paginated` shows one page, which follows the finger on a horizontal swipe with the neighbouring page beside it; the scroll layouts scroll vertically, and `fit: page` shows whole pages. See [PDF locators](../docs/api-reference/locator.md#pdf-locators).
 - **Wide tables in book mode stay on their page.** A table wider than the page stacks so it no longer spills onto the next page, or stays a clipped grid when cells are merged. A button on that table calls [`onTableOpen`](../docs/api-reference/reader-widget.md) with the original grid plus the reader font size and colors. Scroll mode is unchanged.
 - **A magnifier follows the finger while selecting text on Android.** Book mode draws its own selection, so the system loupe never opened. Android's magnifier now shows the text under the finger until the drag ends, with the same rounded corners as the system loupe. It needs Android 9. Scroll mode already has the system one.
 
 ### Fixed
 
+- **PDF preferences set before the reader opened were lost.** `setPDFPreferences` called while the reader widget did not exist yet was dropped, so a PDF always opened in its default layout until the preferences were set again. The preferences are now kept and applied when the reader is created, on Android and iOS, and a call that omits a value no longer resets it.
 - **Highlights saved from a PDF selection did not show on iOS.** `applyDecorations` did nothing for PDF, and the selection locator only named the current page. The selection locator now carries the page and the area of the selection (`page=` and `viewrect=` fragments), and highlights and underlines are drawn on the PDF and report taps. Highlights saved earlier are found by their text on the page. Android PDF has no text selection yet. See [PDF locators](../docs/api-reference/locator.md#pdf-locators).
 - **Book mode on Android jumped back after a slow page drag.** The turn was kept only when the finger was still moving fast as it lifted, so a drag that had already crossed the page returned to the previous one. The same thing happened on the last page of a chapter. The page now stays once the drag has passed the halfway point. A short drag still returns, and a quick flick is unchanged.
 - **Saving a selection on Android sometimes did nothing until a handle was moved.** The highlight stayed on the page, but the selection Readium reads had been cleared after the long-press. It is put back before Copy, Share, or Save runs.

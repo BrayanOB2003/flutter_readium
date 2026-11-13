@@ -95,7 +95,9 @@ A text selection in a PDF produces a locator that points at the selected area, u
 - `applyDecorations` draws `highlight` and `underline` styles as PDF annotations, one per text line. It finds `text.highlight` on the page and uses `viewrect`, then `text.before`, to pick the right occurrence. Without matching text it falls back to the text inside `viewrect`. A locator with neither cannot be drawn and is skipped with a log warning.
 - Tapping a drawn decoration fires `onDecorationInteraction` instead of a chrome tap.
 - Releasing a dragged selection handle can shorten the selection by a few characters. This is PDFKit's own behaviour (Files and Books do the same), so the plugin does not correct it.
-- Scanned PDFs without a text layer cannot be selected or decorated. Android PDF does not support text selection or decorations.
+- Scanned PDFs without a text layer cannot be selected or decorated.
+
+On Android the same locator is written by the reader (androidx.pdf `PdfView`): `page=` is the page of the first selected rectangle, and `viewrect=` covers the selection rectangles on that page, in PDF points from the top-left. Decorations are painted with `PdfView.setHighlights`, found by searching the page for `text.highlight` and choosing the occurrence that overlaps `viewrect`. If the text is not found, the `viewrect` area itself is painted. An `underline` is drawn as a thin strip along each line. Page rotation is not applied.
 
 **Don't duplicate upstream models.** If upstream Readium already models something (locator position, decoration style, …), use that representation rather than inventing a plugin-side parallel — alternatives create two sources of truth that diverge over time.
 

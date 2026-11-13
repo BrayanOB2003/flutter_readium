@@ -9,3 +9,10 @@
     boolean getScrollMode();
     boolean isSelecting;
 }
+
+# PdfReaderFragment swaps PdfView's internal render scope by name to add an
+# exception handler (androidx.pdf 1.0.0-beta01 has none).
+-keepclassmembers class androidx.pdf.view.PdfView {
+    kotlinx.coroutines.CoroutineScope getBackgroundScope$pdf_viewer();
+    void setBackgroundScope$pdf_viewer(kotlinx.coroutines.CoroutineScope);
+}

@@ -114,7 +114,7 @@ LCP-protected publications are not currently supported. The underlying toolkits 
 | ----------- | ---------------------- |
 | Flutter     | 3.44.8+                |
 | Dart SDK    | 3.8.0+                 |
-| Android     | `minSdkVersion` 24     |
+| Android     | `minSdkVersion` 28     |
 | iOS         | 15.0+                  |
 
 The development SDK is pinned separately in `.flutter-version`; contributors should use
@@ -127,7 +127,9 @@ Complete the per-platform setup below before running the reader. See the full
 
 ### Android
 
-- Set `minSdkVersion` to 24 or higher in `android/app/build.gradle`.
+- Set `minSdkVersion` to 28 or higher and `compileSdkExtension` to 19 or higher in
+  `android/app/build.gradle`. The PDF reader (androidx.pdf) needs both, and the build fails at
+  `checkDebugAarMetadata` without `compileSdkExtension`.
 - Enable [core library desugaring](https://developer.android.com/studio/write/java8-support) — the
   readium-kotlin-toolkit artifacts require it, and the build fails at `checkDebugAarMetadata`
   without it:

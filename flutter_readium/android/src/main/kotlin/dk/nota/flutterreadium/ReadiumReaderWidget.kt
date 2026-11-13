@@ -160,6 +160,10 @@ class ReadiumReaderWidget(
         val initialPreferences =
             initPrefsMap?.let { FlutterEpubPreferences.fromMap(it) } ?: FlutterEpubPreferences()
 
+        @Suppress("UNCHECKED_CAST")
+        val initialPdfPreferences =
+            (creationParams["pdfPreferences"] as? Map<String, Any>)?.let { FlutterPdfPreferences.fromMap(it) }
+
         PluginLog.d(TAG, "publication = $publication")
 
         layout = LinearLayout(context, attrs)
@@ -202,6 +206,7 @@ class ReadiumReaderWidget(
                     fragmentManager,
                     layout,
                     this@ReadiumReaderWidget,
+                    initialPdfPreferences,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -471,10 +476,9 @@ class ReadiumReaderWidget(
             }
 
             "applyDecorations" -> {
-                if (ReadiumReader.isPdf || ReadiumReader.isComic) {
-                    // PdfNavigatorFragment and ImageNavigatorFragment do not expose a
-                    // DecorableNavigator surface in kotlin-toolkit 3.2.0.
-                    PluginLog.d(TAG, "::applyDecorations - not supported for PDF/comic")
+                if (ReadiumReader.isComic) {
+                    // ImageNavigatorFragment does not expose a DecorableNavigator surface.
+                    PluginLog.d(TAG, "::applyDecorations - not supported for comic")
                     result.success(null)
                     return
                 }
