@@ -146,6 +146,11 @@ class PdfReaderFragment : Fragment() {
     private var fingerDown = false
     private var selectionStartedUnderFinger = false
     private var injectingTouch = false
+    private var keepingPageInView = false
+    private var lastTapAt = 0L
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+    private val pendingTap = arrayOfNulls<Runnable>(1)
     private var hadSelectionAtDown = false
     private var bridgedThisGesture = false
 
@@ -211,6 +216,8 @@ class PdfReaderFragment : Fragment() {
         savedInstanceState: Bundle?,
     ): View {
         val view = PdfView(requireContext())
+        // The page counter that follows the scroll thumb gets in the way of the text.
+        view.fastScrollVisibility = PdfView.FastScrollVisibility.ALWAYS_HIDE
         view.layoutParams =
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         catchRenderFailures(view)
@@ -453,6 +460,44 @@ class PdfReaderFragment : Fragment() {
         view.setPadding(0, band, 0, band)
     }
 
+    /**
+     * Pages are a view's height apart in book mode, so a zoomed page could be scrolled into the gap.
+     * The page is held inside the view while zoomed, and snapped back as soon as the zoom returns to the fit.
+     */
+    private fun keepPageInView(
+        view: PdfView,
+        pageLocations: SparseArray<RectF>,
+        zoom: Float,
+    ) {
+        if (keepingPageInView || modeAnchor > 0 || currentPage < 1 || preferences?.let { it.isPaginated && it.fitsPage } != true) return
+        val page = pageLocations.get(currentPage - 1) ?: return
+        if (fitPageZoom <= 0f) return
+        if (zoom <= fitPageZoom * ZOOMED_IN_FACTOR) {
+            if (!fingerDown && abs(page.top - view.paddingTop) > BAND_STEP_PX) {
+                keepingPageInView = true
+                try {
+                    view.scrollToPage(currentPage - 1)
+                } finally {
+                    keepingPageInView = false
+                }
+            }
+            return
+        }
+        if (page.height() <= view.height) return
+        val shift =
+            when {
+                page.top > 0f -> page.top
+                page.bottom < view.height -> page.bottom - view.height
+                else -> return
+            }
+        keepingPageInView = true
+        try {
+            view.scrollBy(0, shift.roundToInt())
+        } finally {
+            keepingPageInView = false
+        }
+    }
+
     private fun isZoomedIn(view: PdfView): Boolean = fitPageZoom > 0f && view.zoom > fitPageZoom * ZOOMED_IN_FACTOR
 
     // endregion
@@ -470,6 +515,7 @@ class PdfReaderFragment : Fragment() {
                 val view = pdfView ?: return
                 publishPage(mostVisiblePage(view, firstVisiblePage, pageLocations) + 1)
                 applyBand(view, zoomLevel)
+                keepPageInView(view, pageLocations, zoomLevel)
                 handlesView?.invalidate()
             }
         }
@@ -723,6 +769,8 @@ class PdfReaderFragment : Fragment() {
         var swipeDecided = false
         var verticalLocked = false
         var horizontalSwipe = false
+        var secondTap = false
+        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
         view.setOnTouchListener { touched, event ->
             if (injectingTouch) return@setOnTouchListener false
             val pdf = touched as PdfView
@@ -740,6 +788,13 @@ class PdfReaderFragment : Fragment() {
                     swipeDecided = false
                     verticalLocked = false
                     horizontalSwipe = false
+                    // The second touch of a double tap zooms: it must neither turn the page nor be a tap.
+                    secondTap = event.eventTime - lastTapAt <= doubleTapTimeout && hypot(event.x - lastTapX, event.y - lastTapY) <= slop * 6
+                    if (secondTap) {
+                        swipeDecided = true
+                        pendingTap[0]?.let { handler.removeCallbacks(it) }
+                        pendingTap[0] = null
+                    }
                     // A tap that dismisses a selection is not a tap for the chrome.
                     hadSelection = pdf.currentSelection != null
                     hadSelectionAtDown = hadSelection
@@ -780,8 +835,18 @@ class PdfReaderFragment : Fragment() {
                         if (horizontalSwipe) finishPageDrag(pdf, event.rawX - downRawX) else if (currentPage > 0) pdf.scrollToPage(currentPage - 1)
                         return@setOnTouchListener true
                     }
-                    if (!moved && !hadSelection && event.eventTime - downAt <= maximumHold) {
-                        onTap(pdf, event.x, event.y)
+                    if (secondTap) {
+                        lastTapAt = 0L
+                    } else if (!moved && !hadSelection && event.eventTime - downAt <= maximumHold) {
+                        // Held back for a double tap, which zooms instead of reaching the chrome.
+                        lastTapAt = event.eventTime
+                        lastTapX = event.x
+                        lastTapY = event.y
+                        val x = event.x
+                        val y = event.y
+                        val tap = Runnable { pdfView?.let { onTap(it, x, y) } }
+                        pendingTap[0] = tap
+                        handler.postDelayed(tap, doubleTapTimeout)
                     }
                 }
 
